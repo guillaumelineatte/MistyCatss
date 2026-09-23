@@ -24,16 +24,22 @@ au fonctionnel. Cahier des charges complet : `.claude/PROMPT.md`.
     Actions uniquement) plutôt que `revalidateTag`.
   - Turbopack est le bundler par défaut (`next dev` / `next build`), pas besoin
     de flag.
-  - `next.config.mjs` a actuellement `typescript.ignoreBuildErrors: true` —
-    hérité du template v0. À retirer en Phase 1 une fois `pnpm typecheck`
-    propre, car incompatible avec la règle "aucun `any`, TS strict".
-- PostgreSQL sur Neon (`@neondatabase/serverless`) + Drizzle ORM / drizzle-kit.
-  Projet Neon **déjà provisionné** : `argentbrut` (id `silent-leaf-45487999`,
-  région `aws-eu-central-1`, Postgres 18). Ne jamais toucher aux autres
-  projets Neon visibles sur le compte (`MistyCatss`, `logos-prod`, `logos`,
-  `momentum`, `swizzer-prod`, `mistycates` — appartiennent à d'autres projets).
+  - `next.config.mjs` avait `typescript.ignoreBuildErrors: true` (hérité du
+    template v0) : **retiré en Phase 1**, `pnpm typecheck` est propre.
+- PostgreSQL sur Neon (`@neondatabase/serverless`, driver `neon-serverless`
+  avec `Pool` — pas `neon-http` : on a besoin de vraies transactions pour le
+  verrou de numérotation des factures, Phase 6) + Drizzle ORM / drizzle-kit.
+  Projet Neon **provisionné et migré** : `argentbrut` (id `silent-leaf-45487999`,
+  branche `production` = `br-falling-sky-b1nyxq4l`, région `aws-eu-central-1`,
+  Postgres 18). Ne jamais toucher aux autres projets Neon visibles sur le
+  compte (`MistyCatss`, `logos-prod`, `logos`, `momentum`, `swizzer-prod`,
+  `mistycates` — appartiennent à d'autres projets).
 - Auth : Better Auth (email/mot de passe, vérification, reset, sessions, TOTP),
-  adaptateur Drizzle. Fallback documenté vers Auth.js v5 credentials si blocage.
+  adaptateur Drizzle (`lib/auth.ts`). Schéma généré via
+  `pnpm exec better-auth generate --config lib/auth.ts --output db/schema/auth.ts`
+  (ne pas éditer `db/schema/auth.ts` à la main, le régénérer après toute
+  modification de plugins dans `lib/auth.ts`). Fallback documenté vers Auth.js
+  v5 credentials si blocage.
 - Emails : Resend, fallback console + `.mail/*.html` si `RESEND_API_KEY` absent.
 - Validation : Zod (serveur, systématique) + React Hook Form (client).
 - Tableaux denses : TanStack Table. État des filtres/URL : `nuqs`.
@@ -45,13 +51,17 @@ au fonctionnel. Cahier des charges complet : `.claude/PROMPT.md`.
 
 ## Conventions
 
-- Montants : entiers en **centimes**, jamais de float. `lib/money.ts` (à créer
-  Phase 1) centralise addition, répartition, arrondi, formatage fr-FR/EUR.
-  ⚠️ `lib/mock-data.ts` actuel stocke les montants en **euros entiers** (ex.
-  `ht: 3300` = 3 300 €, formaté par un helper `eur()` dupliqué dans
-  `dashboard-screen.tsx` et `finance-screens.tsx`). Ce mock sera remplacé par
-  les vraies données Phase 1+ ; ne pas reproduire ce pattern dans le nouveau
-  code.
+- Montants : entiers en **centimes** partout en base (colonnes `*_cents`),
+  jamais de float. `lib/money.ts` sera créé en Phase 5 (première consommatrice :
+  calcul des lignes de devis/factures) pour centraliser addition, répartition,
+  arrondi TVA, formatage fr-FR/EUR — ne pas dupliquer de `eur()` ad hoc
+  ailleurs d'ici là.
+  ⚠️ `lib/mock-data.ts` (encore utilisé par les écrans actuels, non branchés
+  DB) stocke les montants en **euros entiers** (ex. `ht: 3300` = 3 300 €). Ce
+  mock sera retiré au fur et à mesure du branchement des écrans sur la vraie
+  base (Phases 5+).
+- Taux (TVA, pénalités...) stockés en **points de base entier**
+  (`vat_rate_basis_points` : 2000 = 20,00 %, 550 = 5,50 %), jamais en float.
 - Dates stockées en UTC, affichées Europe/Paris, semaines au lundi, tout en
   français.
 - Toute requête passe par un helper de scoping utilisateur (Phase 3).
@@ -81,7 +91,17 @@ components/
                           propres boutons dans finance-shell.tsx)
 lib/
   mock-data.ts            14 clients, 40 factures, 6 devis, CA mensuel, échéances fiscales
+                           (encore utilisé par les écrans, à retirer au fil des Phases 5+)
   utils.ts                cn() (clsx + tailwind-merge)
+  auth.ts                 instance Better Auth (Phase 1, câblage UI en Phase 2)
+db/
+  client.ts               instance Drizzle (Pool neon-serverless, singleton en dev)
+  schema/                 voir section "Schéma de données" ci-dessous
+  seed.ts                 seed de développement idempotent (pnpm db:seed)
+drizzle/                  migrations SQL générées + snapshots (drizzle/meta/)
+drizzle.config.ts
+eslint.config.mjs         flat config (ESLint 9, next lint n'existe plus en v16)
+vitest.config.mts
 ```
 
 ### Routes (via `app/[...slug]/page.tsx`, fallback = styleguide)
@@ -113,6 +133,61 @@ pas maintenant :
 - `ThemeSwitcher` → fonctionnel visuellement mais non persisté (reset au reload,
   pas lié à un profil utilisateur) : à brancher sur les Paramètres en Phase 4.
 
+## Schéma de données (Phase 1)
+
+34 tables dans `db/schema/*.ts` (barrel `db/schema/index.ts`), migrations dans
+`drizzle/*.sql` (générées, jamais éditées à la main sauf les migrations
+`--custom` explicitement documentées ci-dessous).
+
+- `auth.ts` — **généré par Better Auth CLI**, ne pas éditer : `user`, `session`,
+  `account`, `verification`, `two_factor`. `user.id` (text) est la FK
+  référencée par (quasi) toutes les autres tables pour le cloisonnement
+  multi-comptes (Phase 3).
+- `company.ts` — `companies` (1:1 user, tout nullable), `status_periods`
+  (historique de statut juridique, au plus une période ouverte par contrainte
+  unique `NULLS NOT DISTINCT` + non-chevauchement garanti par une contrainte
+  `EXCLUDE USING gist` sur `daterange(start_date, end_date)`, migration
+  `0001_status_periods_no_overlap.sql`, nécessite `btree_gist`),
+  `fiscal_param_overrides` (clé/valeur par année+statut, la base fait foi sur
+  `lib/fiscal/params/*.ts` — Phase 4), `user_preferences`, `numbering_series` +
+  `document_number_counters` (compteur atomique par série/année, verrou
+  `SELECT ... FOR UPDATE` à l'émission — Phase 6), `email_templates`.
+- `clients.ts` — `clients` (archivage, jamais de suppression physique si des
+  documents existent — appliqué au niveau service, pas au niveau schéma).
+- `documents.ts` — `quotes`/`quote_lines`, `invoices`/`invoice_lines`,
+  `invoice_audit_log`, `invoice_reminders`, `recurring_invoice_templates`/
+  `_lines`. **Immuabilité des factures émises appliquée en base**, pas
+  seulement côté app (migration `0002_invoice_immutability_and_audit_log.sql`) :
+  - trigger `invoices_immutable_once_issued` : bloque toute modification des
+    colonnes financières/légales dès que `status <> 'draft'` (seuls
+    `status`/`paid_amount_cents`/`notes` restent modifiables, pour les
+    paiements et l'annulation) ;
+  - trigger `invoices_no_delete_once_issued` : bloque toute suppression d'une
+    facture émise (correction = avoir, jamais delete) ;
+  - trigger `invoice_lines_immutable_once_issued` : bloque insert/update/delete
+    sur les lignes dès que la facture parente n'est plus `draft` ;
+  - trigger `invoice_audit_log_append_only` : bloque tout update/delete sur le
+    journal d'audit, sans exception, quel que soit le rôle connecté.
+  Conséquence pratique pour tout code futur (Phase 6+) : une facture doit être
+  créée en `draft`, ses lignes insérées à ce stade, puis une **seule** requête
+  `UPDATE ... SET status = ...` fait la transition d'émission — jamais
+  d'update combiné touchant aussi les montants une fois `draft` quitté. Le
+  seed (`db/seed.ts`) désactive temporairement ces triggers pour se
+  réinitialiser proprement (`ALTER TABLE ... DISABLE/ENABLE TRIGGER`) : ne
+  reproduis ce pattern que dans un script de seed, jamais dans le code
+  applicatif.
+- `treasury.ts` — `bank_accounts`, `transaction_categories`, `category_rules`,
+  `transactions` (montant signé), `invoice_payments` (rapprochement, supporte
+  les paiements partiels), `deadlines`, `vat_periods`.
+- `time.ts` — `projects`, `time_entries` (lien optionnel vers
+  `invoice_lines.id` une fois converties), `active_timers` (1 ligne par
+  utilisateur, `started_at` non nul = chrono en cours — persiste le minuteur
+  entre sessions/appareils, Phase 9).
+- `files.ts` — métadonnées des fichiers passant par `lib/storage.ts` (Phase 7).
+- `misc.ts` — `rate_limit_buckets` (limitation de débit maison par fenêtre
+  fixe, backée Postgres — voir décision Phase 2 ci-dessous),
+  `data_export_requests` (RGPD).
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -123,17 +198,51 @@ pas maintenant :
   cahier des charges : normal, non bloquant, sera saisi depuis l'interface.
 - **Phase 0** — `RESEND_API_KEY` et `BLOB_READ_WRITE_TOKEN` absents : non
   bloquant. Resend dégrade vers console + `.mail/`. Le stockage utilise le
-  filesystem local en dev (`lib/storage.ts`, Phase 1+) ; Blob n'est requis
+  filesystem local en dev (`lib/storage.ts`, Phase 7) ; Blob n'est requis
   qu'au déploiement Vercel, qui reste du ressort de l'utilisateur.
+- **Phase 1** — Connexion Neon récupérée via le MCP (`get_connection_string`),
+  écrite dans `.env.local` (gitignored). Pooled = `DATABASE_URL` (runtime),
+  direct = `DATABASE_URL_UNPOOLED` (drizzle-kit). Pas d'intervention utilisateur
+  nécessaire.
+- **Phase 1** — `eslint@10` casse avec `eslint-plugin-react@7.37.5`
+  (`contextOrFilename.getFilename is not a function`, API retirée d'ESLint 10)
+  alors qu'`eslint-config-next@16.3.6` en dépend. **Épinglé `eslint@^9`**
+  (peer range `eslint-config-next` : `>=9.0.0`, donc valide) le temps que
+  l'écosystème Next rattrape ESLint 10.
+- **Phase 1** — Vérification anti mot de passe compromis (exigée par
+  PROMPT.md) implémentée **localement** (liste embarquée, Phase 2), pas via
+  l'API HaveIBeenPwned : un appel à ce service enverrait des données à un
+  tiers, ce que les règles d'arrêt du projet exigent de valider avant de le
+  faire. Décision autonome pour rester dans le périmètre "aucun envoi externe
+  sans validation", pas un blocage.
+- **Phase 1** — Rate limiting implémenté via une table Postgres maison
+  (`rate_limit_buckets`, fenêtre fixe) plutôt qu'Upstash/Redis : évite une
+  dépendance Marketplace non demandée pour un besoin simple. À revisiter si le
+  volume réel le justifie.
+- **Phase 1** — Immuabilité des factures émises et inaltérabilité du journal
+  d'audit imposées **par triggers Postgres**, en plus de la couche service
+  applicative prévue Phase 6 (défense en profondeur — voir section Schéma).
+- **Phase 1** — Colonne `status_period_id` volontairement absente sur
+  `invoices` : le statut légal en vigueur à la date d'émission est résolu à
+  l'écriture puis figé dans `legal_snapshot` (jsonb), pas via FK vers
+  `status_periods`. Plus simple, et l'immutabilité de la facture rend la
+  traçabilité par FK secondaire.
 
 ## Commandes utiles
 
 ```bash
-pnpm dev         # serveur de dev (Turbopack, port 3000)
-pnpm build       # build de production
-pnpm start       # serveur de production
-# À ajouter en Phase 1 : pnpm typecheck (tsc --noEmit), pnpm lint (eslint .),
-# pnpm test (vitest), pnpm db:push / db:migrate / db:seed (drizzle-kit)
+pnpm dev             # serveur de dev (Turbopack, port 3000)
+pnpm build           # build de production
+pnpm start           # serveur de production
+pnpm typecheck       # tsc --noEmit
+pnpm lint            # eslint . (flat config, next lint est supprimé en v16)
+pnpm test            # vitest run
+pnpm test:watch      # vitest (watch)
+pnpm db:generate     # drizzle-kit generate — génère une migration depuis db/schema/
+pnpm db:migrate      # drizzle-kit migrate — applique les migrations en attente
+pnpm db:push         # drizzle-kit push — sync direct schéma->DB (dev only, hors migrations suivies)
+pnpm db:studio       # drizzle-kit studio — explorateur DB
+pnpm db:seed         # tsx db/seed.ts — seed de dev idempotent (utilisateur seed-user-1 / alex@brut.dev)
 ```
 
 ## Variables d'environnement

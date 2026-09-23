@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790186922585,
+      "tag": "0000_cheerful_the_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790186954075,
+      "tag": "0001_status_periods_no_overlap",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790187002228,
+      "tag": "0002_invoice_immutability_and_audit_log",
+      "breakpoints": true
+    }
+  ]
+}

@@ -3,3 +3,11 @@ pmOnFail: ignore
 minimumReleaseAgeExclude:
   - '@next/*'
   - next
+
+allowBuilds:
+  # Adaptateurs optionnels de @better-auth/cli non utilisés (Postgres/Drizzle
+  # uniquement dans ce projet) : postinstall natif désactivé volontairement.
+  '@prisma/client': false
+  better-sqlite3: false
+  esbuild: true
+  unrs-resolver: true

@@ -11,7 +11,7 @@ const themes = [
   { id: 'menthe', name: 'Menthe & miel', paper: '#E4F2E7', ink: '#17241E', accent: '#2D7D63', secondary: '#E5B83C' },
   { id: 'cobalt', name: 'Cobalt & ivoire', paper: '#F0F2EA', ink: '#121A2A', accent: '#2456C4', secondary: '#F0B429' },
   { id: 'corail', name: 'Corail & lilas', paper: '#FFF0EB', ink: '#2A171A', accent: '#E85D52', secondary: '#9B72C2' },
-]
+] as const
 
 export function ThemeSwitcher() {
   const { theme, setTheme } = useTheme()
