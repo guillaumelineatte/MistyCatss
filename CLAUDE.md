@@ -93,7 +93,22 @@ lib/
   mock-data.ts            14 clients, 40 factures, 6 devis, CA mensuel, échéances fiscales
                            (encore utilisé par les écrans, à retirer au fil des Phases 5+)
   utils.ts                cn() (clsx + tailwind-merge)
-  auth.ts                 instance Better Auth (Phase 1, câblage UI en Phase 2)
+  auth.ts                 instance Better Auth (config email/2FA/rate limit, Phase 1-2)
+  auth-client.ts           client Better Auth (React), plugin twoFactor
+  auth/session.ts          DAL : getSession()/requireSession(), mémoïsé
+  auth/actions.ts          Server Actions signup/reset/change-password (policy check inclus)
+  auth/password-policy.ts  longueur + liste locale de mots de passe compromis
+  auth/common-passwords.ts liste locale (483 entrées ≥12 car., voir décisions Phase 2)
+  email.ts                 envoi Resend + fallback console/.mail/
+  email/templates.ts       templates HTML des emails transactionnels
+components/
+  form/field.tsx           <Field>/<FormError>/inputClassName partagés par tous les formulaires
+  settings/security-settings.tsx  page Sécurité (mot de passe, 2FA, sessions, email, RGPD)
+app/(auth)/                login, signup, forgot-password, reset-password (layout partagé)
+app/settings/security/     page Sécurité (vraie route, prioritaire sur le routeur mock)
+app/api/auth/[...all]/     handler Better Auth
+app/api/account/export/    export RGPD (GET, protégé)
+proxy.ts                   vérification optimiste de session (redirections /login)
 db/
   client.ts               instance Drizzle (Pool neon-serverless, singleton en dev)
   schema/                 voir section "Schéma de données" ci-dessous
@@ -117,7 +132,25 @@ vitest.config.mts
 | `/settings`   | SettingsScreen + ThemeSwitcher | Formulaires non contrôlés, aucun submit réel |
 | `/styleguide` | StyleGuideScreen | Démo de design system, pas un écran produit         |
 
-Aucune page d'auth n'existe encore (`/login`, `/signup`, etc. — Phase 2).
+### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
+
+Vraies pages Next.js (prioritaires sur `app/[...slug]/page.tsx`) :
+
+| Route | Fonction |
+|---|---|
+| `/login` | Connexion + étape 2FA TOTP si activée |
+| `/signup` | Inscription (vérification email obligatoire) |
+| `/forgot-password` | Demande de lien de reset |
+| `/reset-password?token=` | Choix du nouveau mot de passe |
+| `/settings/security` | Compte, mot de passe, 2FA, sessions, email, export RGPD, suppression |
+| `/api/auth/[...all]` | Handler Better Auth (signup/login/reset/verify/2FA/sessions/…) |
+| `/api/account/export` | Export JSON du compte (RGPD), protégé par session |
+
+`proxy.ts` protège tout le reste (vérif. optimiste sur le cookie de session,
+redirige vers `/login?next=...`) ; `lib/auth/session.ts` fait la vérification
+réelle (`getSession`/`requireSession`, appelle la base via Better Auth,
+mémoïsé avec `cache()`) — c'est cette dernière qui fait foi partout où une
+donnée sensible est en jeu, jamais le cookie seul.
 
 ### Boutons/contrôles morts identifiés (liste complète attendue dans `AUDIT.md`, Phase 9)
 
@@ -227,6 +260,54 @@ pas maintenant :
   l'écriture puis figé dans `legal_snapshot` (jsonb), pas via FK vers
   `status_periods`. Plus simple, et l'immutabilité de la facture rend la
   traçabilité par FK secondaire.
+- **Phase 2** — Authentification complète implémentée et testée de bout en
+  bout (signup → email de vérification dégradé → clic → login → 2FA →
+  sessions → changement d'email/mot de passe → export → suppression), en
+  local (curl + navigateur réel) contre la base Neon. Détail des choix :
+  - **Mot de passe compromis** : liste locale de 483 mots de passe ≥ 12
+    caractères (`lib/auth/common-passwords.ts`), dérivée hors ligne d'un jeu
+    de données public de fuites (SecLists xato-net-10-million-passwords),
+    filtrée/normalisée une fois pour toutes. Vérifiée dans une Server Action
+    (`lib/auth/actions.ts`) AVANT d'appeler `auth.api.signUpEmail`/
+    `resetPassword`/`changePassword` — aucun appel réseau au runtime pour
+    cette vérification.
+  - **Rate limiting** : finalement branché sur le rate limiter **intégré**
+    de Better Auth (`rateLimit: { enabled: true, storage: 'database' }`,
+    table `rateLimit` générée par la CLI), pas sur `rate_limit_buckets` —
+    ses règles par défaut (connexion/inscription : 3/10s ; reset/renvoi de
+    vérification : 3/60s) couvrent exactement ce que demande PROMPT.md.
+    Testé manuellement (curl) : 4ᵉ tentative de connexion → 429. `misc.ts`
+    garde `rate_limit_buckets`, réservée à un usage hors-auth futur (ex.
+    anti-devinette de token public de consultation, Phase 5/6).
+  - **CSRF** : géré nativement par Better Auth (vérification de l'en-tête
+    `Origin` sur toute mutation), constaté en testant sans cet en-tête
+    (`MISSING_OR_NULL_ORIGIN`). Rien à ajouter côté app.
+  - **Changement d'email** : Better Auth n'envoie qu'un seul type d'email
+    selon l'état (confirmation à l'ancienne adresse OU vérification à la
+    nouvelle). Pour satisfaire "confirmation sur l'ancienne ET la nouvelle"
+    (PROMPT.md), `sendChangeEmailConfirmation` (lib/auth.ts) envoie
+    manuellement les deux : lien d'action à l'ancienne adresse (celle qui
+    fait foi), avis informatif à la nouvelle.
+  - **Suppression de compte** : `user.deleteUser.enabled` + email de
+    confirmation à usage unique (24h) = la "confirmation forte". Doublée
+    d'une confirmation UI (taper son email exact) avant même d'envoyer la
+    demande. Export de données proposé juste au-dessus dans la même page.
+  - **Export RGPD (Phase 2)** : `/api/account/export` couvre aujourd'hui
+    profil + entreprise + statuts + préférences (tout ce qui existe en base
+    à ce stade) ; à étendre phase après phase à mesure que clients/devis/
+    factures/etc. arrivent (Conformité, PROMPT.md).
+  - **2FA TOTP** : QR code généré côté client avec `qrcode` (nouvelle
+    dépendance, petite, pas d'alternative déjà installée) à partir du
+    `totpURI` renvoyé par `authClient.twoFactor.enable`. Codes de
+    récupération affichés une seule fois à l'activation.
+  - **Proxy vs DAL** : `proxy.ts` ne fait qu'une vérification optimiste
+    (présence du cookie, `better-auth/cookies#getSessionCookie`) — c'est
+    volontaire (voir doc Next.js citée en tête de fichier) : la vérité vient
+    toujours de `lib/auth/session.ts`.
+  - Nouveaux items de nav dans `finance-shell.tsx` : lien "Sécurité"
+    (`/settings/security`) et bouton "Déconnexion" (`authClient.signOut()`),
+    absents du design original — ajoutés dans le même style que le reste du
+    sidebar (icônes Lucide, mêmes classes).
 
 ## Commandes utiles
 

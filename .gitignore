@@ -9,6 +9,10 @@ __v0_jsx-dev-runtime.ts
 # Environment variables
 .env*.local
 
+# Emails écrits en mode dégradé (RESEND_API_KEY absente) — contiennent des
+# liens/tokens de vérification, jamais commités.
+.mail/
+
 # Common ignores
 node_modules
 .next/

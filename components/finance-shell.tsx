@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { createContext, useContext, useEffect, useState } from 'react'
 import {
   ArrowDownToLine,
@@ -13,14 +13,17 @@ import {
   Command,
   FileText,
   LayoutDashboard,
+  LogOut,
   Menu,
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Users,
   WalletCards,
   X,
 } from 'lucide-react'
+import { authClient } from '@/lib/auth-client'
 import { cn } from '@/lib/utils'
 
 type ThemeId = 'sauge' | 'terracotta' | 'nuit' | 'prune' | 'lavande' | 'menthe' | 'cobalt' | 'corail'
@@ -49,6 +52,7 @@ const nav = [
 
 export function FinanceShell({ children, title, eyebrow }: { children: React.ReactNode; title: string; eyebrow?: string }) {
   const pathname = usePathname()
+  const router = useRouter()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [period, setPeriod] = useState('AOUT 2025')
@@ -109,16 +113,29 @@ export function FinanceShell({ children, title, eyebrow }: { children: React.Rea
               </Link>
             )
           })}
-          <Link href="/settings" className={cn('group mt-auto flex items-center gap-3 border-2 border-transparent px-3 py-3 font-[Anton] text-lg uppercase tracking-[-.02em] text-[var(--paper)]/75 hover:bg-[var(--paper)]/10 hover:text-[var(--paper)]', pathname.startsWith('/settings') && 'border-[var(--ink)] bg-[var(--blue)] text-[var(--paper)]')}>
+          <Link href="/settings" className={cn('group mt-auto flex items-center gap-3 border-2 border-transparent px-3 py-3 font-[Anton] text-lg uppercase tracking-[-.02em] text-[var(--paper)]/75 hover:bg-[var(--paper)]/10 hover:text-[var(--paper)]', pathname.startsWith('/settings') && !pathname.startsWith('/settings/security') && 'border-[var(--ink)] bg-[var(--blue)] text-[var(--paper)]')}>
             <Settings aria-hidden="true" className="size-4" strokeWidth={2.5} />
             Paramètres
           </Link>
+          <Link href="/settings/security" className={cn('group flex items-center gap-3 border-2 border-transparent px-3 py-3 font-[Anton] text-lg uppercase tracking-[-.02em] text-[var(--paper)]/75 hover:bg-[var(--paper)]/10 hover:text-[var(--paper)]', pathname.startsWith('/settings/security') && 'border-[var(--ink)] bg-[var(--blue)] text-[var(--paper)]')}>
+            <ShieldCheck aria-hidden="true" className="size-4" strokeWidth={2.5} />
+            Sécurité
+          </Link>
         </nav>
 
-        <div className="mt-8 border-t border-[var(--paper)]/25 pt-4 font-mono text-[10px] uppercase leading-relaxed text-[var(--paper)]/50">
-          <p>Dernière sync</p>
-          <p className="text-[var(--paper)]">Aujourd’hui · 09:42</p>
-          <p className="mt-4">v0.1 · Brutalement simple</p>
+        <div className="mt-8 border-t border-[var(--paper)]/25 pt-4">
+          <button
+            onClick={async () => {
+              await authClient.signOut()
+              router.push('/login')
+              router.refresh()
+            }}
+            className="flex w-full items-center gap-3 px-3 py-3 font-anton text-lg uppercase tracking-[-.02em] text-[var(--paper)]/75 hover:text-[var(--pink)]"
+          >
+            <LogOut aria-hidden="true" className="size-4" strokeWidth={2.5} />
+            Déconnexion
+          </button>
+          <p className="mt-4 px-3 font-mono text-[10px] uppercase text-[var(--paper)]/40">v0.1 · Brutalement simple</p>
         </div>
       </aside>
       {mobileOpen && <button className="fixed inset-0 z-20 bg-[var(--ink)]/40 md:hidden" aria-label="Fermer le menu" onClick={() => setMobileOpen(false)} />}

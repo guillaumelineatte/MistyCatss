@@ -22,6 +22,13 @@
       "when": 1790187002228,
       "tag": "0002_invoice_immutability_and_audit_log",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790188110058,
+      "tag": "0003_wonderful_pandemic",
+      "breakpoints": true
     }
   ]
 }
