@@ -5,20 +5,27 @@ import { NextResponse, type NextRequest } from 'next/server'
 // d'appel base) — la vérification réelle a lieu dans le DAL de chaque
 // Server Component/Action (lib/auth/session.ts, Phase 3). Voir
 // node_modules/next/dist/docs/.../authentication.md.
-const PUBLIC_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password']
+
+// Pages d'auth : jamais accessibles à un visiteur déjà connecté (redirigé vers "/").
+const AUTH_ONLY_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password']
+
+// Consultation publique par jeton (devis/factures) : accessible avec OU sans
+// session — un utilisateur connecté peut aussi prévisualiser ses propres liens.
+const ALWAYS_PUBLIC_ROUTES = ['/public']
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))
+  const isAuthOnlyRoute = AUTH_ONLY_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))
+  const isAlwaysPublicRoute = ALWAYS_PUBLIC_ROUTES.some((route) => pathname.startsWith(route))
   const sessionCookie = getSessionCookie(request)
 
-  if (!sessionCookie && !isPublicRoute) {
+  if (!sessionCookie && !isAuthOnlyRoute && !isAlwaysPublicRoute) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('next', pathname)
     return NextResponse.redirect(loginUrl)
   }
 
-  if (sessionCookie && isPublicRoute) {
+  if (sessionCookie && isAuthOnlyRoute) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 

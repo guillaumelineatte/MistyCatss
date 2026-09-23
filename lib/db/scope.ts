@@ -8,7 +8,7 @@ import { requireSession } from '@/lib/auth/session'
 import type * as schema from '@/db/schema'
 
 type Database = NeonDatabase<typeof schema>
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0]
 
 /**
  * Fabrique le point de passage OBLIGATOIRE pour toute requête touchant une

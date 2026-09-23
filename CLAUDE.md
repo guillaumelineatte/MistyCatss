@@ -130,6 +130,15 @@ lib/settings/actions.ts          Server Actions entreprise/statuts/préférences
 lib/onboarding/steps.ts          liste des étapes + calcul de complétude
 components/fiscal/missing-param-banner.tsx  encart réutilisable (Phase 8+)
 components/settings/general-settings.tsx, fiscal-year-form.tsx, onboarding-checklist.tsx
+lib/money.ts                     montants centimes/points de base : arrondi TVA ligne par ligne (Phase 5)
+lib/clients/                     queries.ts (indicateurs calculés), actions.ts (CRUD + doublons)
+lib/quotes/                      queries.ts (expiration paresseuse), actions.ts (cycle de vie complet)
+lib/documents/exporter.ts        interface DocumentExporter<T>, réutilisée par InvoiceExporter (Phase 6)
+lib/documents/numbering.ts       compteur atomique partagé devis/factures + test de concurrence
+lib/documents/quote-pdf.tsx, quote-exporter.ts, fonts.ts
+assets/fonts/                    .ttf vendorisés pour l'embarquement PDF (voir décisions Phase 5)
+components/clients/, components/quotes/
+app/clients/, app/quotes/, app/invoices/, app/public/quotes/[token]/
 db/
   client.ts               instance Drizzle neondb_owner (BYPASSRLS — admin/migrations/seed/Better Auth)
   scoped-client.ts         instance Drizzle app_scoped (NOBYPASSRLS — lib/db/scope.ts uniquement)
@@ -146,18 +155,27 @@ vitest.config.mts
 | Route         | Écran            | Fonctionnel ?                                    |
 |---------------|------------------|---------------------------------------------------|
 | `/`           | DashboardScreen  | Lecture seule, données en dur                     |
-| `/invoices`   | InvoicesScreen   | Recherche/filtre client-side OK, actions mortes    |
-| `/clients`    | ClientsScreen    | Sélection client OK, CRUD absent                   |
 | `/treasury`   | TreasuryScreen   | Toggle statut OK (UI only), chiffres en dur/statut |
 | `/time`       | TimeScreen       | Chrono = faux (état bool, temps affiché en dur)    |
 | `/forecast`   | ForecastScreen   | Slider OK, taux net `.754` en dur (interdit Phase 4+) |
 | `/styleguide` | StyleGuideScreen | Démo de design system, pas un écran produit         |
 
-`settings` a été retiré de ce routeur mock en Phase 4 : `/settings` et
-`/settings/*` sont de vraies routes (`app/settings/**`), prioritaires sur
-`app/[...slug]/page.tsx`. `SettingsScreen` reste défini dans
-`finance-screens.tsx` mais n'est plus importé nulle part (mort, à retirer
-avec le reste du mock).
+`settings`, `clients` et `invoices` ont été retirés de ce routeur mock
+(Phases 4-5) : ce sont de vraies routes, prioritaires sur
+`app/[...slug]/page.tsx`. `SettingsScreen`/`ClientsScreen`/`InvoicesScreen`
+restent définis dans `finance-screens.tsx` mais ne sont plus importés nulle
+part (morts, à retirer avec le reste du mock au fil des prochaines phases).
+
+### Routes métier (Phase 5)
+
+| Route | Fonction |
+|---|---|
+| `/clients`, `/clients/[id]` | Liste + fiche client (CRUD, indicateurs, archivage) |
+| `/invoices` | Vue combinée devis + factures (factures en lecture seule, Phase 6) |
+| `/quotes/new`, `/quotes/[id]` | Création/édition/envoi/duplication/conversion de devis |
+| `/quotes/[id]/pdf` | PDF du devis, protégé par session |
+| `/public/quotes/[token]` | Consultation publique + acceptation/refus en ligne, sans session |
+| `/public/quotes/[token]/pdf` | PDF public par jeton |
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -358,6 +376,64 @@ interdit explicitement.
   à chaque changement de route) — refonte plus large, hors du périmètre de
   cette phase, à reprendre si le confort visuel devient prioritaire (Phase 9+).
 
+## Clients, devis, PDF, consultation publique (Phase 5)
+
+- **Clients** (`/clients`, `/clients/[id]`, `lib/clients/`) : CRUD complet,
+  détection de doublons (SIRET ou nom identique, confirmation explicite pour
+  passer outre), indicateurs calculés à la volée (CA cumulé, encours, délai
+  de paiement moyen, part du CA total avec seuil "dépendance" à 30 % — seuil
+  d'affichage UI, pas une valeur fiscale, donc pas concerné par l'interdiction
+  d'inventer). Suppression physique **uniquement** si aucun devis/facture/
+  projet/modèle récurrent n'y est rattaché, sinon redirigée vers l'archivage
+  (`archivedAt`) — jamais de perte de document lié.
+- **Devis** (`/quotes/new`, `/quotes/[id]`, `lib/quotes/`) : lignes
+  réordonnables (boutons monter/descendre plutôt que drag-and-drop — même
+  résultat fonctionnel, pas de dépendance dnd-kit pour ça), remise en %,
+  cycle de statuts `draft → sent → accepted/refused/expired`, duplication,
+  conversion en facture **brouillon** (l'émission avec numérotation reste
+  Phase 6). Expiration : pas encore de cron (Phase 10) — `listQuotes()` bascule
+  en lecture les devis `sent` dont `validUntil` est dépassée avant de
+  renvoyer la liste, donc jamais affiché comme "envoyé" indéfiniment après
+  péremption, sans dépendre d'une tâche planifiée pour l'instant.
+- **Numérotation partagée** (`lib/documents/numbering.ts`) : `getNextDocumentNumber`
+  incrémente atomiquement via `INSERT ... ON CONFLICT DO UPDATE SET n = n + 1`
+  (atomique sous Postgres, pas besoin de `SELECT ... FOR UPDATE` explicite).
+  Utilisée pour les devis dès maintenant, et réutilisée telle quelle pour les
+  factures en Phase 6 — **test de concurrence déjà écrit et vert**
+  (`lib/documents/__tests__/numbering.test.ts`, 20 appels concurrents →
+  20 numéros distincts et consécutifs), en avance sur l'exigence explicite de
+  PROMPT.md pour les factures.
+- **PDF** (`lib/documents/`) : interface `DocumentExporter<T>` (`exporter.ts`),
+  implémentation "classique" avec `@react-pdf/renderer`. Piège rencontré :
+  `@fontsource/*` ne fournit que du woff/woff2, que le sous-ensembleur de
+  polices de react-pdf (fontkit) ne sait pas ré-encoder de façon fiable à
+  l'embarquement PDF (`Offset is outside the bounds of the DataView`) — il
+  faut du `.ttf`. Récupéré une fois depuis Google Fonts et vendorisé dans
+  `assets/fonts/` (voir `lib/documents/fonts.ts`) plutôt que refetché à
+  chaque build. `InvoiceExporter` (Phase 6) réutilisera cette même interface
+  et cette même config de polices pour les factures.
+- **Consultation publique** (`/public/quotes/[token]`, `/public/quotes/[token]/pdf`) :
+  accessible sans session (`proxy.ts`, `ALWAYS_PUBLIC_ROUTES`), jeton
+  UUID non devinable comme seule clé d'accès. `respondToPublicQuoteAction`
+  utilise volontairement `db` (connexion admin, contourne la RLS) plutôt que
+  `withUserScope` : il n'y a pas de session côté visiteur, donc pas
+  d'`app.user_id` possible — la clause `WHERE publicToken = ...` fait office
+  de garde à la place. IP capturée (`x-forwarded-for`) à l'acceptation pour
+  l'horodatage exigé par PROMPT.md.
+- **Vérification** : `lib/money.ts` et le PDF exporter ont leur suite Vitest
+  (arrondi ligne par ligne, cas limites). Le cycle complet devis (création →
+  envoi/numérotation → acceptation publique → conversion facture) a été
+  exercé directement contre la branche `test` via script ad hoc (nettoyé
+  après coup) — les Server Actions elles-mêmes n'ont pas pu être testées en
+  navigateur cette session (voir décision Phase 4 sur la collision de cookies
+  entre projets locaux sur `localhost`) ; leur logique est néanmoins identique
+  à celle exercée par le script (mêmes fonctions `withUserScope`/`getNextDocumentNumber`/
+  `computeDocumentTotals` sous-jacentes).
+- `settings`, `clients` et `invoices` retirés du routeur mock
+  (`app/[...slug]/page.tsx`) : `/invoices` est maintenant une vraie route
+  listant devis + factures (les factures restent en lecture seule tant que
+  la Phase 6 n'a pas construit leur cycle de vie complet).
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -491,6 +567,12 @@ interdit explicitement.
     `/api/auth/sign-out` une fois dans ce navigateur partagé — a pu déconnecter
     une session de cet autre projet. Rien d'irréversible (juste à relancer/se
     reconnecter côté utilisateur), mais à savoir.
+- **Phase 5** — Clients, devis, PDF, consultation publique (voir section
+  dédiée ci-dessus). `lib/money.ts` construit (différé depuis la Phase 1,
+  premier vrai consommateur ici). Numérotation atomique et son test de
+  concurrence livrés en avance sur la Phase 6 qui les réutilisera pour les
+  factures. Fonts PDF vendorisées en `.ttf` dans `assets/fonts/` après avoir
+  découvert que `@fontsource` (woff/woff2) fait planter l'embarquement fontkit.
 
 ## Commandes utiles
 

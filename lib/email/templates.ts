@@ -58,6 +58,16 @@ export function changeEmailVerificationEmail(url: string, newEmail: string) {
   }
 }
 
+export function quoteSentEmail(quoteNumber: string, publicUrl: string) {
+  return {
+    subject: `Devis ${quoteNumber}`,
+    html: wrap(
+      `Devis ${quoteNumber}`,
+      `<p>Voici ton devis. Tu peux le consulter et l'accepter directement en ligne.</p>${button(publicUrl, 'Consulter le devis')}`,
+    ),
+  }
+}
+
 export function deleteAccountEmail(url: string) {
   return {
     subject: 'Confirme la suppression de ton compte',
