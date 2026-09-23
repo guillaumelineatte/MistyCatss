@@ -127,7 +127,12 @@ export const invoiceAuditLog = pgTable('invoice_audit_log', {
     .references(() => invoices.id, { onDelete: 'cascade' }),
   event: invoiceEventEnum('event').notNull(),
   metadata: jsonb('metadata'),
-  actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
+  // Pas de FK vers user.id : le journal d'audit doit rester une trace
+  // historique fidèle même après suppression du compte (conservation légale
+  // des pièces, cf. PROMPT.md « Conformité »). Une FK ON DELETE SET NULL
+  // provoquerait un UPDATE sur cette table à la suppression du compte, que
+  // le trigger d'append-only (migration 0002) bloque à raison.
+  actorUserId: text('actor_user_id'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [index('invoice_audit_log_invoice_idx').on(table.invoiceId, table.occurredAt)])
 

@@ -14,6 +14,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('.', import.meta.url)),
+      // Voir test/stubs/server-only.ts : neutralise le garde-fou de bundler
+      // Next.js, non pertinent sous Vitest.
+      'server-only': fileURLToPath(new URL('./test/stubs/server-only.ts', import.meta.url)),
     },
   },
 })

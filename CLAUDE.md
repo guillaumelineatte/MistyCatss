@@ -31,9 +31,18 @@ au fonctionnel. Cahier des charges complet : `.claude/PROMPT.md`.
   verrou de numérotation des factures, Phase 6) + Drizzle ORM / drizzle-kit.
   Projet Neon **provisionné et migré** : `argentbrut` (id `silent-leaf-45487999`,
   branche `production` = `br-falling-sky-b1nyxq4l`, région `aws-eu-central-1`,
-  Postgres 18). Ne jamais toucher aux autres projets Neon visibles sur le
-  compte (`MistyCatss`, `logos-prod`, `logos`, `momentum`, `swizzer-prod`,
+  Postgres 18) + branche `test` = `br-super-sea-b1zrrucm` (tests d'intégration
+  uniquement, Phase 3). Ne jamais toucher aux autres projets Neon visibles sur
+  le compte (`MistyCatss`, `logos-prod`, `logos`, `momentum`, `swizzer-prod`,
   `mistycates` — appartiennent à d'autres projets).
+  ⚠️ **Toute migration de schéma doit être appliquée aux DEUX branches** :
+  ```bash
+  pnpm exec drizzle-kit migrate                                    # branche production/dev
+  TEST_URL=$(grep '^TEST_DATABASE_URL_UNPOOLED=' .env.local | cut -d= -f2-)
+  DATABASE_URL_UNPOOLED="$TEST_URL" pnpm exec drizzle-kit migrate   # branche test
+  ```
+  (la branche test a été créée par copie-sur-écriture de production à un
+  instant T — drizzle-kit ne les synchronise pas automatiquement après coup).
 - Auth : Better Auth (email/mot de passe, vérification, reset, sessions, TOTP),
   adaptateur Drizzle (`lib/auth.ts`). Schéma généré via
   `pnpm exec better-auth generate --config lib/auth.ts --output db/schema/auth.ts`
@@ -109,8 +118,11 @@ app/settings/security/     page Sécurité (vraie route, prioritaire sur le rout
 app/api/auth/[...all]/     handler Better Auth
 app/api/account/export/    export RGPD (GET, protégé)
 proxy.ts                   vérification optimiste de session (redirections /login)
+lib/db/scope.ts           withUserScope/withCurrentUserScope — point de passage RLS obligatoire (Phase 3)
+lib/db/__tests__/         tests d'isolation multi-comptes (branche Neon "test")
 db/
-  client.ts               instance Drizzle (Pool neon-serverless, singleton en dev)
+  client.ts               instance Drizzle neondb_owner (BYPASSRLS — admin/migrations/seed/Better Auth)
+  scoped-client.ts         instance Drizzle app_scoped (NOBYPASSRLS — lib/db/scope.ts uniquement)
   schema/                 voir section "Schéma de données" ci-dessous
   seed.ts                 seed de développement idempotent (pnpm db:seed)
 drizzle/                  migrations SQL générées + snapshots (drizzle/meta/)
@@ -168,14 +180,14 @@ pas maintenant :
 
 ## Schéma de données (Phase 1)
 
-34 tables dans `db/schema/*.ts` (barrel `db/schema/index.ts`), migrations dans
+36 tables dans `db/schema/*.ts` (barrel `db/schema/index.ts`), migrations dans
 `drizzle/*.sql` (générées, jamais éditées à la main sauf les migrations
 `--custom` explicitement documentées ci-dessous).
 
 - `auth.ts` — **généré par Better Auth CLI**, ne pas éditer : `user`, `session`,
-  `account`, `verification`, `two_factor`. `user.id` (text) est la FK
-  référencée par (quasi) toutes les autres tables pour le cloisonnement
-  multi-comptes (Phase 3).
+  `account`, `verification`, `two_factor`, `rate_limit`. `user.id` (text) est
+  la FK référencée par (quasi) toutes les autres tables pour le cloisonnement
+  multi-comptes (Phase 3, voir section dédiée ci-dessous).
 - `company.ts` — `companies` (1:1 user, tout nullable), `status_periods`
   (historique de statut juridique, au plus une période ouverte par contrainte
   unique `NULLS NOT DISTINCT` + non-chevauchement garanti par une contrainte
@@ -209,6 +221,14 @@ pas maintenant :
   réinitialiser proprement (`ALTER TABLE ... DISABLE/ENABLE TRIGGER`) : ne
   reproduis ce pattern que dans un script de seed, jamais dans le code
   applicatif.
+  `invoice_audit_log.actor_user_id` n'a **pas** de FK vers `user.id` (retirée
+  en Phase 3, migration `0006`) : le journal doit rester une trace fidèle même
+  après suppression du compte auteur — voir « Suppression de compte » plus bas.
+  La fonction `prevent_issued_invoice_lines_mutation` (migration `0002`) a été
+  corrigée en Phase 3 (migration `0007`) : elle ne bloque que si la facture
+  parente existe ENCORE et n'est plus `draft` — sinon une suppression en
+  cascade légitime (ex. nettoyage de fixtures de test) était bloquée à tort
+  quand l'ordre de cascade Postgres supprimait la facture avant ses lignes.
 - `treasury.ts` — `bank_accounts`, `transaction_categories`, `category_rules`,
   `transactions` (montant signé), `invoice_payments` (rapprochement, supporte
   les paiements partiels), `deadlines`, `vat_periods`.
@@ -220,6 +240,68 @@ pas maintenant :
 - `misc.ts` — `rate_limit_buckets` (limitation de débit maison par fenêtre
   fixe, backée Postgres — voir décision Phase 2 ci-dessous),
   `data_export_requests` (RGPD).
+
+## Cloisonnement multi-comptes (Phase 3)
+
+Row Level Security Postgres sur les 28 tables utilisateur (migration
+`0004_row_level_security.sql`), **pas** une simple discipline applicative :
+même une requête qui « oublie » son `WHERE user_id = …` ne peut renvoyer que
+0 ligne. Table directe : `USING (user_id = current_setting('app.user_id', true))`.
+Table enfant sans `user_id` propre (ex. `quote_lines`) : `EXISTS (SELECT 1
+FROM quotes WHERE quotes.id = quote_lines.quote_id AND quotes.user_id = …)`.
+`current_setting(..., true)` renvoie NULL si rien n'est positionné → aucune
+ligne ne matche jamais : *deny by default*.
+
+**Point critique, à ne jamais recréer par erreur** : le rôle par défaut Neon
+(`neondb_owner`, celui de `DATABASE_URL`) a l'attribut `BYPASSRLS`, comme
+**tout rôle créé via l'API/console/MCP Neon** — `FORCE ROW LEVEL SECURITY` sur
+les tables ne change rien pour un rôle qui a `BYPASSRLS`, ça n'a d'effet que
+sur le propriétaire de la table s'il ne l'a pas. Un rôle créé en **SQL pur**
+(`CREATE ROLE ... WITH LOGIN NOBYPASSRLS`, migration `0005_app_scoped_role.sql`)
+n'a en revanche pas cet attribut par défaut — c'est le comportement Postgres
+standard, confirmé et documenté dans le guide officiel Neon
+(neon.com/docs/guides/rls-query-execution). D'où deux rôles/connexions bien
+distincts :
+
+| Rôle | Variable | BYPASSRLS | Usage |
+|---|---|---|---|
+| `neondb_owner` | `DATABASE_URL(_UNPOOLED)` | oui | migrations, seed, adaptateur Better Auth (`db/client.ts`) |
+| `app_scoped` | `DATABASE_SCOPED_URL` | **non** | toute requête métier via `lib/db/scope.ts` (`db/scoped-client.ts`) |
+
+`lib/db/scope.ts` expose `withUserScope(userId, fn)` / `withCurrentUserScope(fn)`
+(résout la session courante) : ouvre une transaction sur `app_scoped`, exécute
+`select set_config('app.user_id', $1, true)` (paramétré, pas d'injection),
+puis `fn(tx)`. **Tout code métier (Phases 5+) doit passer par là** — jamais de
+requête directe via `db/client.ts` sur une table utilisateur. `mot de passe`
+d'`app_scoped` positionné séparément par branche (`ALTER ROLE app_scoped WITH
+PASSWORD ...`), jamais committé, jamais dans une migration.
+
+**Tests d'isolation** (`lib/db/__tests__/isolation.test.ts`, contre la branche
+Neon `test`, jamais dev/prod) : pour chacune des 28 tables, vérifie qu'une
+lecture non scopée renvoie 0 ligne malgré des données existantes ; vérifie
+qu'un compte ne peut ni lire, ni UPDATE, ni DELETE une ressource d'un autre
+compte (test direct sur `clients`, test sur une table enfant via
+`invoice_lines`) ; vérifie qu'un INSERT avec un `user_id` usurpé est rejeté
+par la clause `WITH CHECK`. `pnpm test` échoue fort si
+`TEST_DATABASE_URL`/`TEST_DATABASE_SCOPED_URL` sont absentes (voir
+`.env.example`) plutôt que de sauter silencieusement ces tests.
+
+**Suppression de compte — limite connue, à traiter en Phase 6+** : plusieurs
+FK sont volontairement en `RESTRICT` plutôt que `CASCADE`
+(`invoices.series_id → numbering_series`, `quotes/invoices/projects/
+recurring_invoice_templates.client_id → clients`, `invoice_payments.invoice_id
+→ invoices`), pour qu'un compte ayant de l'historique financier ne puisse
+jamais disparaître via un simple `DELETE FROM user` — cohérent avec la
+conservation légale des factures (dix ans, PROMPT.md « Conformité ») mais ça
+veut dire qu'**aujourd'hui, `authClient.deleteUser()` échouera** (violation de
+contrainte FK) pour tout compte ayant émis au moins une facture/un devis/un
+projet. Tant que Phase 6+ n'a pas construit un vrai service de suppression
+(anonymisation des données personnelles + conservation des pièces
+comptables — PROMPT.md autorise explicitement l'un ou l'autre), la
+suppression de compte ne doit être considérée fonctionnelle que pour un
+compte sans aucune donnée métier. Ne pas « corriger » ça en repassant les FK
+en `CASCADE` : ce serait perdre des factures, ce que le cahier des charges
+interdit explicitement.
 
 ## Journal des décisions
 
@@ -292,6 +374,10 @@ pas maintenant :
     confirmation à usage unique (24h) = la "confirmation forte". Doublée
     d'une confirmation UI (taper son email exact) avant même d'envoyer la
     demande. Export de données proposé juste au-dessus dans la même page.
+    ⚠️ Mise à jour Phase 3 : ce flux ne fonctionnera plus dès qu'un compte a
+    de l'historique financier (contraintes FK volontaires, voir section
+    « Cloisonnement multi-comptes » ci-dessus) — actuellement fonctionnel
+    uniquement pour un compte sans données métier.
   - **Export RGPD (Phase 2)** : `/api/account/export` couvre aujourd'hui
     profil + entreprise + statuts + préférences (tout ce qui existe en base
     à ce stade) ; à étendre phase après phase à mesure que clients/devis/
@@ -308,6 +394,26 @@ pas maintenant :
     (`/settings/security`) et bouton "Déconnexion" (`authClient.signOut()`),
     absents du design original — ajoutés dans le même style que le reste du
     sidebar (icônes Lucide, mêmes classes).
+- **Phase 3** — Cloisonnement multi-comptes implémenté par Row Level Security
+  Postgres (pas seulement applicatif) : voir section dédiée ci-dessus pour le
+  détail. Points saillants du journal, au-delà de ce qui y est déjà écrit :
+  - Branche Neon `test` créée spécifiquement pour ces tests d'intégration
+    (copie-sur-écriture de `production` à l'instant T) plutôt que de risquer
+    d'exécuter des tests contre la base de dev — les deux doivent recevoir
+    les mêmes migrations désormais (voir section Stack).
+  - Piège Neon découvert en testant : un rôle créé via l'API/MCP Neon a
+    `BYPASSRLS` par défaut, ce qui rendait la RLS totalement inopérante en
+    silence (aucune erreur, juste toutes les lignes visibles) — détecté
+    uniquement parce que les tests d'isolation ont échoué de façon suspecte
+    (16 lignes vues au lieu de 1). Confirmé par la doc officielle Neon
+    (rls-query-execution.md) après investigation. Rôle recréé en SQL pur
+    (`CREATE ROLE ... NOBYPASSRLS`), qui n'a pas ce comportement.
+  - En creusant le nettoyage des fixtures de test, découverte que la
+    suppression d'un compte avec historique financier casse aujourd'hui
+    (contraintes RESTRICT + trigger d'immuabilité mal ordonné avec les
+    cascades) — corrigé pour le trigger (migration 0007), documenté comme
+    limitation connue pour les contraintes RESTRICT (intentionnelles, voir
+    ci-dessus).
 
 ## Commandes utiles
 
@@ -336,6 +442,7 @@ connues :
 |---|---|---|---|---|
 | `DATABASE_URL` | ✅ | ✅ (branche Neon dédiée) | ✅ | ❌ |
 | `DATABASE_URL_UNPOOLED` | ✅ | ✅ | ✅ | ❌ |
+| `DATABASE_SCOPED_URL` | ✅ | ✅ | ✅ | ❌ |
 | `BETTER_AUTH_SECRET` | ✅ | ✅ | ✅ | ❌ |
 | `BETTER_AUTH_URL` | ✅ | ✅ | ✅ | ❌ |
 | `NEXT_PUBLIC_APP_URL` | ✅ | ✅ | ✅ | ✅ (public par design) |
@@ -343,6 +450,7 @@ connues :
 | `RESEND_FROM_EMAIL` | ✅ | optionnel | optionnel | ❌ |
 | `BLOB_READ_WRITE_TOKEN` | ✅ | optionnel | non utilisé (fs local) | ❌ |
 | `CRON_SECRET` | ✅ | ✅ | optionnel | ❌ |
+| `TEST_DATABASE_URL(_UNPOOLED\|_SCOPED)` | ❌ | ❌ | ✅ (branche `test` dédiée) | ❌ |
 
 ## Design (figé, ne pas modifier visuellement)
 
