@@ -85,6 +85,8 @@ export const userPreferences = pgTable('user_preferences', {
   defaultDailyRateCents: integer('default_daily_rate_cents'),
   defaultPaymentTermsDays: integer('default_payment_terms_days').default(30),
   onboardingCompletedSteps: jsonb('onboarding_completed_steps').$type<string[]>().default([]),
+  // Palette choisie dans le sélecteur de thème (finance-shell.tsx / theme-switcher.tsx).
+  theme: text('theme').default('sauge'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 

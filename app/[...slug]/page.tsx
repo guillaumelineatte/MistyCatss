@@ -1,7 +1,8 @@
 import { FinanceShell } from '@/components/finance-shell'
-import { ThemeSwitcher } from '@/components/theme-switcher'
-import { ClientsScreen, ForecastScreen, InvoicesScreen, SettingsScreen, StyleGuideScreen, TimeScreen, TreasuryScreen } from '@/components/finance-screens'
+import { ClientsScreen, ForecastScreen, InvoicesScreen, StyleGuideScreen, TimeScreen, TreasuryScreen } from '@/components/finance-screens'
 
+// "settings" n'apparaît plus ici : /settings et /settings/* sont de vraies
+// routes (app/settings/**) depuis la Phase 4, prioritaires sur ce routeur mock.
 const routes: Record<string, { title: string; eyebrow: string; content: React.ReactNode }> = {
   styleguide: { title: 'STYLEGUIDE', eyebrow: 'Le système avant le produit', content: <StyleGuideScreen /> },
   invoices: { title: 'DEVIS & FACTURES', eyebrow: '40 factures · 6 devis · 11 880 € à encaisser', content: <InvoicesScreen /> },
@@ -9,7 +10,6 @@ const routes: Record<string, { title: string; eyebrow: string; content: React.Re
   treasury: { title: 'TRÉSORERIE & CHARGES', eyebrow: 'Relevé, calendrier, statut juridique', content: <TreasuryScreen /> },
   time: { title: 'TEMPS & RENTABILITÉ', eyebrow: '180 entrées · semaine 35', content: <TimeScreen /> },
   forecast: { title: 'PRÉVISIONNEL', eyebrow: 'Objectif annuel · simulation nette', content: <ForecastScreen /> },
-  settings: { title: 'PARAMÈTRES', eyebrow: 'Une seule configuration. La tienne.', content: <div className="flex flex-col gap-8"><SettingsScreen /><ThemeSwitcher /></div> },
 }
 
 export default async function RoutePage({ params }: { params: Promise<{ slug: string[] }> }) {

@@ -2,9 +2,11 @@ import { pgEnum } from 'drizzle-orm/pg-core'
 
 // Statuts juridiques supportés (cf. PROMPT.md « Statut juridique »).
 export const statutJuridiqueEnum = pgEnum('statut_juridique', ['micro', 'eurl', 'sasu'])
+export type StatutJuridique = (typeof statutJuridiqueEnum.enumValues)[number]
 
 // Régime de TVA en vigueur pour une période de statut donnée.
 export const vatRegimeEnum = pgEnum('vat_regime', ['franchise', 'reel_simplifie', 'reel_normal'])
+export type VatRegime = (typeof vatRegimeEnum.enumValues)[number]
 
 export const quoteStatusEnum = pgEnum('quote_status', ['draft', 'sent', 'accepted', 'refused', 'expired'])
 

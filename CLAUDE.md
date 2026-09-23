@@ -115,11 +115,21 @@ components/
   settings/security-settings.tsx  page Sécurité (mot de passe, 2FA, sessions, email, RGPD)
 app/(auth)/                login, signup, forgot-password, reset-password (layout partagé)
 app/settings/security/     page Sécurité (vraie route, prioritaire sur le routeur mock)
+app/settings/page.tsx      entreprise, statuts/périodes, préférences, numérotation, thème (Phase 4)
+app/settings/fiscal/[year]/  paramètres fiscaux par année/statut (Phase 4)
+app/onboarding/             première configuration, 5 étapes sautables (Phase 4)
 app/api/auth/[...all]/     handler Better Auth
 app/api/account/export/    export RGPD (GET, protégé)
 proxy.ts                   vérification optimiste de session (redirections /login)
 lib/db/scope.ts           withUserScope/withCurrentUserScope — point de passage RLS obligatoire (Phase 3)
-lib/db/__tests__/         tests d'isolation multi-comptes (branche Neon "test")
+lib/db/__tests__/         tests d'isolation multi-comptes + statuts à cheval (branche Neon "test")
+lib/fiscal/param-definitions.ts  source de vérité des paramètres fiscaux (Phase 4)
+lib/fiscal/params/<année>.ts     structure documentée, valeurs à null
+lib/fiscal/get-params.ts         résolution DB + résultat typé missing_params
+lib/settings/actions.ts          Server Actions entreprise/statuts/préférences/numérotation/fiscal/onboarding
+lib/onboarding/steps.ts          liste des étapes + calcul de complétude
+components/fiscal/missing-param-banner.tsx  encart réutilisable (Phase 8+)
+components/settings/general-settings.tsx, fiscal-year-form.tsx, onboarding-checklist.tsx
 db/
   client.ts               instance Drizzle neondb_owner (BYPASSRLS — admin/migrations/seed/Better Auth)
   scoped-client.ts         instance Drizzle app_scoped (NOBYPASSRLS — lib/db/scope.ts uniquement)
@@ -141,8 +151,13 @@ vitest.config.mts
 | `/treasury`   | TreasuryScreen   | Toggle statut OK (UI only), chiffres en dur/statut |
 | `/time`       | TimeScreen       | Chrono = faux (état bool, temps affiché en dur)    |
 | `/forecast`   | ForecastScreen   | Slider OK, taux net `.754` en dur (interdit Phase 4+) |
-| `/settings`   | SettingsScreen + ThemeSwitcher | Formulaires non contrôlés, aucun submit réel |
 | `/styleguide` | StyleGuideScreen | Démo de design system, pas un écran produit         |
+
+`settings` a été retiré de ce routeur mock en Phase 4 : `/settings` et
+`/settings/*` sont de vraies routes (`app/settings/**`), prioritaires sur
+`app/[...slug]/page.tsx`. `SettingsScreen` reste défini dans
+`finance-screens.tsx` mais n'est plus importé nulle part (mort, à retirer
+avec le reste du mock).
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -155,6 +170,9 @@ Vraies pages Next.js (prioritaires sur `app/[...slug]/page.tsx`) :
 | `/forgot-password` | Demande de lien de reset |
 | `/reset-password?token=` | Choix du nouveau mot de passe |
 | `/settings/security` | Compte, mot de passe, 2FA, sessions, email, export RGPD, suppression |
+| `/settings` | Entreprise, statuts/périodes, préférences (TJM…), numérotation, thème (Phase 4, remplace le mock) |
+| `/settings/fiscal/[year]` | Paramètres fiscaux par année et par statut (Phase 4) |
+| `/onboarding` | Première configuration, 5 étapes sautables (Phase 4) |
 | `/api/auth/[...all]` | Handler Better Auth (signup/login/reset/verify/2FA/sessions/…) |
 | `/api/account/export` | Export JSON du compte (RGPD), protégé par session |
 
@@ -303,6 +321,43 @@ compte sans aucune donnée métier. Ne pas « corriger » ça en repassant les F
 en `CASCADE` : ce serait perdre des factures, ce que le cahier des charges
 interdit explicitement.
 
+## Paramètres fiscaux, entreprise, onboarding (Phase 4)
+
+- `lib/fiscal/param-definitions.ts` — source de vérité unique des paramètres
+  fiscaux (clé, libellé, unité `basis_points`|`cents`, statuts concernés).
+  `lib/fiscal/params/<année>.ts` en dérive une structure 100 % à `null`
+  (documentation/forme, jamais de valeur). `lib/fiscal/get-params.ts`
+  (`getFiscalParams(userId, year, status)`) résout les valeurs réelles depuis
+  `fiscal_param_overrides` (la base fait foi) et renvoie toujours un résultat
+  typé `{ status: 'ok' | 'missing_params', ... }` — jamais d'exception, jamais
+  de valeur par défaut. `<MissingParamBanner>` (components/fiscal/) est prêt à
+  être posé partout où un calcul dépendra de ces paramètres (Phase 8), pas
+  encore utilisé (aucun calcul fiscal n'existe encore).
+- Stockage : un paramètre = une ligne (`year`, `status`, `paramKey`, `value`).
+  Le formulaire (`fiscal-year-form.tsx`) affiche/saisit en unité humaine (€ ou
+  %), l'action (`upsertFiscalParamsAction`) convertit ×100 vers l'unité de
+  stockage (centimes/points de base) — champ vide = suppression de l'override
+  (retour à "manquant"), jamais une valeur inventée à sa place.
+- Statuts juridiques : `createStatusPeriodAction` clôt la période ouverte
+  (`endDate = date d'effet - 1 jour`) puis insère la nouvelle, dans la même
+  transaction scopée. La contrainte `EXCLUDE` (migration 0001) est le filet de
+  sécurité final ; l'action valide aussi côté application pour renvoyer un
+  message clair plutôt qu'une erreur Postgres brute. Testé pour le cas
+  "exercice à cheval sur deux statuts" (`lib/db/__tests__/status-periods.test.ts`).
+- Onboarding (`/onboarding`, `lib/onboarding/steps.ts`) : 5 étapes
+  (entreprise, statut, numérotation, préférences, paramètres fiscaux de
+  l'année), chacune "Configurer" (marque fait + lien) ou "Passer" (marque
+  ignoré), état dans `user_preferences.onboarding_completed_steps` (jsonb).
+  Jamais imposé : aucune redirection forcée vers `/onboarding`.
+- Thème (`ThemeSwitcher`) persisté dans `user_preferences.theme`, mais
+  **uniquement rechargé sur la page `/settings`** (`FinanceShell` accepte un
+  prop `initialTheme` optionnel, seule cette page le fournit pour l'instant) :
+  faire persister le thème à travers toute la navigation demanderait de
+  remonter `FinanceShell`/`ThemeContext` dans un layout partagé (actuellement
+  chaque page l'instancie individuellement, donc il se réinitialise à `sauge`
+  à chaque changement de route) — refonte plus large, hors du périmètre de
+  cette phase, à reprendre si le confort visuel devient prioritaire (Phase 9+).
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -414,6 +469,28 @@ interdit explicitement.
     cascades) — corrigé pour le trigger (migration 0007), documenté comme
     limitation connue pour les contraintes RESTRICT (intentionnelles, voir
     ci-dessus).
+- **Phase 4** — Paramètres fiscaux, entreprise, périodes de statut, onboarding
+  implémentés et testés (voir section dédiée ci-dessus pour l'architecture).
+  Vérifications faites : suite Vitest complète (40 tests, dont le nouveau cas
+  "exercice à cheval sur deux statuts") ; upsert entreprise/paramètre fiscal/
+  transition de statut exercés directement contre la branche `test` (script
+  ad hoc, nettoyé après coup) ; inscription/connexion/navigation
+  `/settings`, `/onboarding`, `/settings/fiscal/2026` vérifiées via curl avec
+  un cookie jar dédié contre un vrai serveur de dev.
+  - Test dans un navigateur réel abandonné en cours de route : ce poste a
+    (au moins) un autre projet Next.js/Better Auth actif en local (process
+    `next-server v15.5.26`, port 3000, cookie `logos-theme` visible), et
+    Chrome partage les cookies entre ports sur `localhost` — un
+    `getSessionCookie` "optimiste" y voit une session, la vérification réelle
+    (`requireSession`) la rejette (mauvais secret/session inexistante côté
+    Argent Brut), d'où une boucle de redirection `/` ↔ `/login` **propre à
+    l'environnement de test, pas un bug de l'app** (confirmé par les mêmes
+    routes renvoyant 200 en curl avec un cookie jar isolé). J'ai involontairement
+    tué un `next-server` de ce process sur le port 3000 en croyant nettoyer
+    mon propre serveur (`pkill -f "next dev"`, trop large), et appelé
+    `/api/auth/sign-out` une fois dans ce navigateur partagé — a pu déconnecter
+    une session de cet autre projet. Rien d'irréversible (juste à relancer/se
+    reconnecter côté utilisateur), mais à savoir.
 
 ## Commandes utiles
 

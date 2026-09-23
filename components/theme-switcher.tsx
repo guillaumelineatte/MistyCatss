@@ -1,6 +1,7 @@
 'use client'
 
 import { useTheme } from './finance-shell'
+import { updateThemeAction } from '@/lib/settings/actions'
 
 const themes = [
   { id: 'sauge', name: 'Sauge & papier', paper: '#F4EBDD', ink: '#171713', accent: '#3D5B45', secondary: '#E85D2A' },
@@ -28,7 +29,7 @@ export function ThemeSwitcher() {
         {themes.map((item) => {
           const active = theme === item.id
           return (
-            <button key={item.id} type="button" onClick={() => setTheme(item.id)} aria-pressed={active} className={`group relative min-h-36 border-2 border-[var(--ink)] p-4 text-left shadow-[4px_4px_0_var(--ink)] transition-transform hover:-translate-y-1 ${active ? 'rotate-1' : ''}`} style={{ backgroundColor: item.paper, color: item.ink }}>
+            <button key={item.id} type="button" onClick={() => { setTheme(item.id); void updateThemeAction(item.id) }} aria-pressed={active} className={`group relative min-h-36 border-2 border-[var(--ink)] p-4 text-left shadow-[4px_4px_0_var(--ink)] transition-transform hover:-translate-y-1 ${active ? 'rotate-1' : ''}`} style={{ backgroundColor: item.paper, color: item.ink }}>
               <div className="flex gap-2">
                 <span className="size-8 border-2 border-current" style={{ backgroundColor: item.ink }} />
                 <span className="size-8 border-2 border-current" style={{ backgroundColor: item.accent }} />

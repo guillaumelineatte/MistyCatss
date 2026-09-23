@@ -50,13 +50,25 @@ const nav = [
   { href: '/forecast', label: 'Prévisionnel', icon: BarChart3 },
 ]
 
-export function FinanceShell({ children, title, eyebrow }: { children: React.ReactNode; title: string; eyebrow?: string }) {
+export function FinanceShell({
+  children,
+  title,
+  eyebrow,
+  initialTheme,
+}: {
+  children: React.ReactNode
+  title: string
+  eyebrow?: string
+  initialTheme?: string | null
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [period, setPeriod] = useState('AOUT 2025')
-  const [theme, setTheme] = useState<ThemeId>('sauge')
+  const [theme, setTheme] = useState<ThemeId>(
+    initialTheme && initialTheme in themeTokens ? (initialTheme as ThemeId) : 'sauge',
+  )
 
   useEffect(() => {
     const root = document.documentElement
