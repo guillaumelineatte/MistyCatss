@@ -159,18 +159,19 @@ vitest.config.mts
 | Route         | Écran            | Fonctionnel ?                                    |
 |---------------|------------------|---------------------------------------------------|
 | `/`           | DashboardScreen  | Lecture seule, données en dur                     |
-| `/treasury`   | TreasuryScreen   | Toggle statut OK (UI only), chiffres en dur/statut |
 | `/time`       | TimeScreen       | Chrono = faux (état bool, temps affiché en dur)    |
 | `/forecast`   | ForecastScreen   | Slider OK, taux net `.754` en dur (interdit Phase 4+) |
 | `/styleguide` | StyleGuideScreen | Démo de design system, pas un écran produit         |
 
-`settings`, `clients` et `invoices` ont été retirés de ce routeur mock
-(Phases 4-5) : ce sont de vraies routes, prioritaires sur
-`app/[...slug]/page.tsx`. `SettingsScreen`/`ClientsScreen`/`InvoicesScreen`
-restent définis dans `finance-screens.tsx` mais ne sont plus importés nulle
-part (morts, à retirer avec le reste du mock au fil des prochaines phases).
+`settings`, `clients`, `invoices` et `treasury` ont été retirés de ce
+routeur mock (Phases 4-7) : ce sont de vraies routes, prioritaires sur
+`app/[...slug]/page.tsx`. `SettingsScreen`/`ClientsScreen`/`InvoicesScreen`/
+`TreasuryScreen` (l'ancien mock) restent définis dans `finance-screens.tsx`
+mais ne sont plus importés nulle part (morts, à retirer avec le reste du
+mock au fil des prochaines phases — même précédent que `SettingsScreen`
+depuis la Phase 4, jamais nettoyé, laissé pour ne pas complexifier ce diff).
 
-### Routes métier (Phases 5-6)
+### Routes métier (Phases 5-7)
 
 | Route | Fonction |
 |---|---|
@@ -184,6 +185,8 @@ part (morts, à retirer avec le reste du mock au fil des prochaines phases).
 | `/invoices/[id]/pdf` | PDF de la facture, protégé par session |
 | `/invoices/export?format=csv\|fec` | Export comptable |
 | `/public/invoices/[token]`, `/public/invoices/[token]/pdf` | Consultation publique, sans session |
+| `/treasury` | Comptes bancaires, transactions, catégorisation, rapprochement facture↔transaction (Phase 7) — filtres persistés dans l'URL (`?q=&account=&category=`, nuqs) |
+| `/api/files/[id]` | Seul point d'accès aux fichiers uploadés (justificatifs), authentifié + scopé RLS, jamais d'URL publique |
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -505,6 +508,78 @@ Phase 1, numérotation atomique testée en concurrence Phase 5).
   depuis `/settings`. Absents par défaut, comme tout le reste — jamais de
   barème légal deviné à leur place.
 
+## Trésorerie (Phase 7)
+
+Aucune migration nécessaire : le schéma (`bank_accounts`, `transaction_categories`,
+`category_rules`, `transactions`, `invoice_payments`) est posé depuis la
+Phase 1 et couvert par la RLS depuis la Phase 3 (migration 0004) — cette
+phase n'ajoute que `lib/treasury/`, `lib/storage.ts`, `lib/uploads.ts`,
+`app/treasury/`, `app/api/files/[id]/` et deux relations Drizzle
+(`transactionCategoriesRelations`, `categoryRulesRelations`,
+`transactions.invoicePayments`) nécessaires pour que le query builder
+relationnel (`tx.query.*.findMany({ with: ... })`) les résolve.
+
+- **Comptes et solde** : `listBankAccounts` (`lib/treasury/queries.ts`)
+  calcule le solde = `opening_balance_cents` + somme signée des transactions
+  du compte (SQL, pas en mémoire). Archivage (pas de suppression) comme les
+  clients.
+- **Catégorisation automatique** : une règle (`category_rules.match_pattern`)
+  s'applique si son motif est une sous-chaîne (insensible à la casse) du
+  libellé de la transaction, testée à la création si aucune catégorie n'est
+  choisie explicitement. Volontairement simple (substring, pas de regex/ML) —
+  PROMPT.md ne demande rien de plus sophistiqué.
+- **Rapprochement facture ↔ transaction** (`reconcileTransactionAction`) :
+  réutilise le même calcul de statut que `recordPaymentAction` (Phase 6),
+  mais **recalculé localement** (`computeInvoiceStatusAfterPayment` dans
+  `lib/treasury/actions.ts`) plutôt qu'importé — un fichier `'use server'` ne
+  peut exporter que des fonctions async, donc pas de helper synchrone partagé
+  sans un fichier dédié pour 3 lignes. Différence volontaire avec Phase 6 :
+  ce calcul tient compte de l'échéance dépassée (`overdue`) pour couvrir le
+  cas d'une **annulation** de rapprochement (`removeInvoicePaymentAction`) ou
+  la suppression d'une transaction rapprochée (`deleteTransactionAction`) —
+  dans les deux cas le solde facture redescend et le statut doit pouvoir
+  redevenir `overdue`, pas seulement `issued`/`partially_paid`.
+- **Suppression d'une transaction rapprochée** : jamais de solde facture
+  orphelin. `deleteTransactionAction` retrouve tous les `invoice_payments`
+  liés, décrémente `paid_amount_cents` de chaque facture concernée, recalcule
+  son statut, supprime les paiements puis la transaction — le tout dans une
+  seule transaction Postgres scopée. Vérifié par script ad hoc contre la
+  branche `test` (voir ci-dessous) : paiement partiel → total → suppression
+  de la transaction reconnectée → la facture revient exactement à son état
+  intermédiaire (montant et statut), jamais à zéro.
+- **Justificatifs** (`lib/storage.ts`, `lib/uploads.ts`) : stockage derrière
+  une interface unique — filesystem local (`.uploads/`, gitignored) en dev,
+  Vercel Blob en **accès privé** (`access: 'private'`, jamais `'public'` —
+  justificatifs = documents financiers sensibles) si `BLOB_READ_WRITE_TOKEN`
+  est présent. Aucune URL Blob n'est jamais exposée côté client : le seul
+  point d'accès est `app/api/files/[id]/route.ts`, qui relit le fichier via
+  `readStoredFile` après une requête scopée RLS (un autre utilisateur ne peut
+  pas deviner l'id d'un fichier qui n'est pas à lui — la RLS le rend
+  invisible, pas juste "non lié"). Validation upload (`lib/uploads.ts`) :
+  taille max 10 Mo, et **signature binaire réelle** vérifiée (magic bytes
+  JPEG/PNG/WebP/PDF), pas seulement le `Content-Type` déclaré par le
+  navigateur — conforme à l'exigence PROMPT.md ("type MIME vérifié côté
+  serveur"). Aucun SVG accepté (vecteur exécutable côté navigateur).
+- **Filtres persistés dans l'URL** : premier vrai usage de `nuqs` dans le
+  projet (dépendance déjà présente depuis la Phase 0, jamais branchée) —
+  `NuqsAdapter` ajouté à `app/layout.tsx` (manquait). `TransactionsPanel`
+  (`?q=&account=&category=`) est le seul écran de recherche/filtre du projet
+  à être réellement partageable par URL pour l'instant ; `ClientsListScreen`
+  (Phase 5) reste en filtrage local (`useState`), pas rétrofité par cette
+  phase pour limiter le diff — à harmoniser plus tard si PROMPT.md le
+  redemande explicitement.
+- **Vérification** : suite Vitest inchangée (aucun nouveau test unitaire pur
+  — pas de nouvelle fonction de calcul isolée, contrairement à `lib/money.ts`
+  ou `legal-mentions.ts`), mais script ad hoc (`tsx`, supprimé après coup)
+  exécuté contre la branche Neon `test` : auto-catégorisation par règle,
+  calcul de solde, rapprochement partiel puis total (transitions de statut),
+  suppression d'une transaction rapprochée (reversion correcte), isolation
+  RLS entre deux utilisateurs. `pnpm typecheck && pnpm lint && pnpm test &&
+  pnpm build` verts. Page `/treasury` vérifiée par un vrai signup + login via
+  curl (cookie jar isolé) contre le serveur de dev — nettoyé après coup
+  (compte de test supprimé de la branche `production`, lignes `verify-treasury-%`
+  supprimées de la branche `test`).
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -653,6 +728,16 @@ Phase 1, numérotation atomique testée en concurrence Phase 5).
   unitaires) : script contre la branche `test` qui tente de contourner
   l'immuabilité (montants + suppression, y compris via la connexion admin
   qui bypasse la RLS) — les deux tentatives ont été rejetées comme prévu.
+- **Phase 7** — Trésorerie, transactions, catégorisation, rapprochement,
+  justificatifs (voir section dédiée ci-dessus). Aucune migration : schéma et
+  RLS déjà en place depuis les Phases 1 et 3. Premier vrai branchement de
+  `nuqs` (dépendance présente depuis la Phase 0, jamais utilisée) — ajout de
+  `NuqsAdapter` manquant dans `app/layout.tsx`. `lib/storage.ts` choisit entre
+  filesystem local et Vercel Blob en accès **privé** selon la présence de
+  `BLOB_READ_WRITE_TOKEN` ; jamais testé en conditions réelles contre un vrai
+  store Blob (token absent en dev, comme Resend) — implémenté au plus près de
+  la doc du SDK installé (`@vercel/blob@2.8.0`, fonctions `get`/`put`/`del` à
+  accès `'private'`), à vérifier au premier déploiement Vercel réel.
 
 ## Commandes utiles
 

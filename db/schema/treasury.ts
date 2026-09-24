@@ -105,10 +105,20 @@ export const bankAccountsRelations = relations(bankAccounts, ({ one, many }) => 
   transactions: many(transactions),
 }))
 
-export const transactionsRelations = relations(transactions, ({ one }) => ({
+export const transactionCategoriesRelations = relations(transactionCategories, ({ many }) => ({
+  transactions: many(transactions),
+  rules: many(categoryRules),
+}))
+
+export const categoryRulesRelations = relations(categoryRules, ({ one }) => ({
+  category: one(transactionCategories, { fields: [categoryRules.categoryId], references: [transactionCategories.id] }),
+}))
+
+export const transactionsRelations = relations(transactions, ({ one, many }) => ({
   user: one(user, { fields: [transactions.userId], references: [user.id] }),
   bankAccount: one(bankAccounts, { fields: [transactions.bankAccountId], references: [bankAccounts.id] }),
   category: one(transactionCategories, { fields: [transactions.categoryId], references: [transactionCategories.id] }),
+  invoicePayments: many(invoicePayments),
 }))
 
 export const invoicePaymentsRelations = relations(invoicePayments, ({ one }) => ({

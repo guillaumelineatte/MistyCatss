@@ -13,6 +13,10 @@ __v0_jsx-dev-runtime.ts
 # liens/tokens de vérification, jamais commités.
 .mail/
 
+# Justificatifs uploadés en développement (storage.ts, fallback filesystem
+# local quand BLOB_READ_WRITE_TOKEN est absent) — jamais commités.
+.uploads/
+
 # Common ignores
 node_modules
 .next/
