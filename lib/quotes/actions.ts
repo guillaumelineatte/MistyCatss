@@ -16,6 +16,7 @@ import { formatDocumentNumber, getNextDocumentNumber, getOrCreateSeries } from '
 import { computeDocumentTotals, computeLineTotals } from '@/lib/money'
 import { sendEmail } from '@/lib/email'
 import { quoteSentEmail } from '@/lib/email/templates'
+import { getAppUrl } from '@/lib/env'
 
 export type ActionResult = { error?: string; success?: boolean }
 
@@ -216,7 +217,7 @@ export async function sendQuoteAction(id: string): Promise<ActionResult> {
   })
 
   if (quote.client?.contactEmail) {
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/public/quotes/${quote.publicToken}`
+    const publicUrl = `${getAppUrl()}/public/quotes/${quote.publicToken}`
     const { subject, html } = quoteSentEmail(quote.number ?? '', publicUrl)
     await sendEmail({ to: quote.client.contactEmail, subject, html })
   }

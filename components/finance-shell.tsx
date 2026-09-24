@@ -173,7 +173,7 @@ export function FinanceShell({
           <div className="flex items-center gap-2 md:gap-3">
             {headerControl}
             <GlobalTimer />
-            <button className="flex h-11 items-center gap-2 border-2 border-[var(--ink)] bg-[var(--blue)] px-3 font-anton text-sm uppercase text-[var(--paper)] shadow-[4px_4px_0_var(--ink)] transition-[transform,box-shadow] hover:translate-x-1 hover:translate-y-1 hover:shadow-[1px_1px_0_var(--ink)]" onClick={() => setPaletteOpen(true)}>
+            <button className="flex h-11 items-center gap-2 border-2 border-[var(--ink)] bg-[var(--blue)] px-3 font-anton text-sm uppercase text-[var(--paper)] shadow-[4px_4px_0_var(--ink)] transition-[transform,box-shadow] active:translate-x-1 active:translate-y-1 active:shadow-[1px_1px_0_var(--ink)]" onClick={() => setPaletteOpen(true)}>
               <Command aria-hidden="true" className="size-4" />
               <span className="hidden sm:inline">CMD K</span>
             </button>
@@ -193,11 +193,11 @@ export function SectionLabel({ children, tone = 'ink' }: { children: React.React
 }
 
 export function ButtonPrimary({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
-  return <button onClick={onClick} className="flex h-11 items-center justify-center gap-2 border-2 border-[var(--ink)] bg-[var(--pink)] px-4 font-anton text-sm uppercase text-[var(--paper)] shadow-[6px_6px_0_var(--ink)] transition-[transform,box-shadow] duration-100 hover:translate-x-1 hover:translate-y-1 hover:shadow-[2px_2px_0_var(--ink)]">{children}</button>
+  return <button onClick={onClick} className="flex h-11 items-center justify-center gap-2 border-2 border-[var(--ink)] bg-[var(--pink)] px-4 font-anton text-sm uppercase text-[var(--paper)] shadow-[6px_6px_0_var(--ink)] transition-[transform,box-shadow] duration-100 active:translate-x-1 active:translate-y-1 active:shadow-[2px_2px_0_var(--ink)]">{children}</button>
 }
 
 export function ButtonSecondary({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
-  return <button onClick={onClick} className="flex h-11 items-center justify-center gap-2 border-2 border-[var(--ink)] bg-[var(--paper)] px-4 font-anton text-sm uppercase shadow-[6px_6px_0_var(--ink)] transition-[transform,box-shadow] duration-100 hover:translate-x-1 hover:translate-y-1 hover:shadow-[2px_2px_0_var(--ink)]">{children}</button>
+  return <button onClick={onClick} className="flex h-11 items-center justify-center gap-2 border-2 border-[var(--ink)] bg-[var(--paper)] px-4 font-anton text-sm uppercase shadow-[6px_6px_0_var(--ink)] transition-[transform,box-shadow] duration-100 active:translate-x-1 active:translate-y-1 active:shadow-[2px_2px_0_var(--ink)]">{children}</button>
 }
 
 export function StatCard({ label, value, note, tone = 'paper', className }: { label: string; value: string; note?: string; tone?: 'paper' | 'pink' | 'blue'; className?: string }) {

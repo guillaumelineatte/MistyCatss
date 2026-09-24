@@ -16,13 +16,17 @@ import {
   resetPasswordEmail,
   verificationEmail,
 } from '@/lib/email/templates'
+import { getAppUrl } from '@/lib/env'
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: 'pg',
     schema: authSchema,
   }),
-  baseURL: process.env.BETTER_AUTH_URL,
+  // BETTER_AUTH_URL explicite en Production ; repli sur l'URL du déploiement
+  // Vercel courant en preview (voir lib/env.ts) — jamais une URL de prod
+  // figée qui rejetterait les requêtes d'une preview (Origin mismatch).
+  baseURL: process.env.BETTER_AUTH_URL ?? getAppUrl(),
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {
     enabled: true,

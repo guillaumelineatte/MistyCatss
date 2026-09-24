@@ -22,6 +22,7 @@ import { invoiceExporter } from '@/lib/documents/invoice-exporter'
 import { formatDocumentNumber, getNextDocumentNumber, getOrCreateSeries } from '@/lib/documents/numbering'
 import { sendEmail } from '@/lib/email'
 import { invoiceReminderEmail, invoiceSentEmail } from '@/lib/email/templates'
+import { getAppUrl } from '@/lib/env'
 import { resolveLegalMentions } from '@/lib/invoicing/legal-mentions'
 import { getStatusPeriodAtDate } from '@/lib/invoicing/queries'
 import { computeDocumentTotals, computeLineTotals, formatEuros } from '@/lib/money'
@@ -223,7 +224,7 @@ export async function sendInvoiceAction(id: string): Promise<ActionResult> {
   if (invoice.client?.contactEmail) {
     const lines = await withCurrentUserScope((tx) => tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, id)))
     const pdf = await invoiceExporter.export({ invoice, lines, client: invoice.client })
-    const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/public/invoices/${invoice.publicToken}`
+    const publicUrl = `${getAppUrl()}/public/invoices/${invoice.publicToken}`
     const { subject, html } = invoiceSentEmail(invoice.fullNumber ?? '', publicUrl)
     await sendEmail({
       to: invoice.client.contactEmail,
@@ -247,7 +248,7 @@ export async function sendReminderAction(id: string): Promise<ActionResult> {
   if (!invoice.client?.contactEmail) return { error: 'Aucun email de contact pour ce client.' }
 
   const dueCents = invoice.totalTtcCents - invoice.paidAmountCents
-  const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/public/invoices/${invoice.publicToken}`
+  const publicUrl = `${getAppUrl()}/public/invoices/${invoice.publicToken}`
   const { subject, html } = invoiceReminderEmail(invoice.fullNumber ?? '', formatEuros(dueCents), publicUrl)
   await sendEmail({ to: invoice.client.contactEmail, subject, html })
 
