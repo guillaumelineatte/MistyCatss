@@ -1,13 +1,13 @@
 import { FinanceShell } from '@/components/finance-shell'
-import { StyleGuideScreen, TimeScreen } from '@/components/finance-screens'
+import { StyleGuideScreen } from '@/components/finance-screens'
 
-// "settings", "clients", "invoices", "treasury" et "forecast" n'apparaissent
-// plus ici : ce sont de vraies routes (app/settings/**, app/clients/**,
-// app/invoices/**, app/treasury/**, app/forecast/**) depuis les Phases 4-8,
-// prioritaires sur ce routeur mock.
+// "settings", "clients", "invoices", "treasury", "forecast" et "time"
+// n'apparaissent plus ici : ce sont de vraies routes (app/settings/**,
+// app/clients/**, app/invoices/**, app/treasury/**, app/forecast/**,
+// app/time/**) depuis les Phases 4-9, prioritaires sur ce routeur mock.
+// Seul "styleguide" reste un écran de démonstration légitime.
 const routes: Record<string, { title: string; eyebrow: string; content: React.ReactNode }> = {
   styleguide: { title: 'STYLEGUIDE', eyebrow: 'Le système avant le produit', content: <StyleGuideScreen /> },
-  time: { title: 'TEMPS & RENTABILITÉ', eyebrow: '180 entrées · semaine 35', content: <TimeScreen /> },
 }
 
 export default async function RoutePage({ params }: { params: Promise<{ slug: string[] }> }) {

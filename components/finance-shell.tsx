@@ -8,7 +8,6 @@ import {
   ArrowUpRight,
   BarChart3,
   CalendarClock,
-  ChevronDown,
   Clock3,
   Command,
   FileText,
@@ -16,7 +15,6 @@ import {
   LogOut,
   Menu,
   Plus,
-  Search,
   Settings,
   ShieldCheck,
   Users,
@@ -25,6 +23,8 @@ import {
 } from 'lucide-react'
 import { authClient } from '@/lib/auth-client'
 import { cn } from '@/lib/utils'
+import { CommandPalette } from './command-palette'
+import { GlobalTimer } from './time/global-timer'
 
 type ThemeId = 'sauge' | 'terracotta' | 'nuit' | 'prune' | 'lavande' | 'menthe' | 'cobalt' | 'corail'
 const ThemeContext = createContext<{ theme: ThemeId; setTheme: (theme: ThemeId) => void }>({ theme: 'sauge', setTheme: () => undefined })
@@ -55,17 +55,18 @@ export function FinanceShell({
   title,
   eyebrow,
   initialTheme,
+  headerControl,
 }: {
   children: React.ReactNode
   title: string
   eyebrow?: string
   initialTheme?: string | null
+  headerControl?: React.ReactNode
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [period, setPeriod] = useState('AOUT 2025')
   const [theme, setTheme] = useState<ThemeId>(
     initialTheme && initialTheme in themeTokens ? (initialTheme as ThemeId) : 'sauge',
   )
@@ -75,6 +76,17 @@ export function FinanceShell({
     const tokens = themeTokens[theme]
     Object.entries(tokens).forEach(([key, value]) => root.style.setProperty(`--${key}`, value))
   }, [theme])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>
@@ -159,15 +171,8 @@ export function FinanceShell({
             <h1 className="max-w-[700px] text-5xl md:text-7xl">{title}</h1>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
-            <label className="sr-only" htmlFor="period">Période</label>
-            <div className="relative">
-              <select id="period" value={period} onChange={(event) => setPeriod(event.target.value)} className="h-11 appearance-none border-2 border-[var(--ink)] bg-[var(--paper)] px-3 pr-9 font-mono text-xs uppercase shadow-[4px_4px_0_var(--ink)] outline-none focus:border-[var(--blue)]">
-                <option>AOÛT 2025</option>
-                <option>JUILLET 2025</option>
-                <option>EXERCICE 2025</option>
-              </select>
-              <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-3 size-4" />
-            </div>
+            {headerControl}
+            <GlobalTimer />
             <button className="flex h-11 items-center gap-2 border-2 border-[var(--ink)] bg-[var(--blue)] px-3 font-anton text-sm uppercase text-[var(--paper)] shadow-[4px_4px_0_var(--ink)] transition-[transform,box-shadow] hover:translate-x-1 hover:translate-y-1 hover:shadow-[1px_1px_0_var(--ink)]" onClick={() => setPaletteOpen(true)}>
               <Command aria-hidden="true" className="size-4" />
               <span className="hidden sm:inline">CMD K</span>
@@ -177,14 +182,7 @@ export function FinanceShell({
         <div className="p-5 md:p-10">{children}</div>
       </main>
 
-      {paletteOpen && <div className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--ink)]/40 p-4 pt-[15vh]" role="dialog" aria-modal="true" aria-label="Palette de commandes">
-        <div className="w-full max-w-xl border-[3px] border-[var(--ink)] bg-[var(--paper)] shadow-[10px_10px_0_var(--ink)]">
-          <div className="flex items-center gap-3 border-b-2 border-[var(--ink)] px-4 py-3"><Search aria-hidden="true" className="size-5" /><input autoFocus className="w-full bg-transparent font-mono text-sm outline-none" placeholder="Rechercher une action…" /><button aria-label="Fermer" onClick={() => setPaletteOpen(false)}><X /></button></div>
-          <div className="p-2 font-mono text-sm">
-            {['Créer une facture', 'Ajouter un client', 'Démarrer le chrono', 'Exporter les données'].map((action, index) => <button key={action} className="flex w-full items-center justify-between px-3 py-3 text-left hover:bg-[var(--pink)]" onClick={() => setPaletteOpen(false)}><span>{action}</span><span className="text-[10px] text-[var(--ink)]/50">{index < 3 ? `⌘ ${index + 1}` : '↵'}</span></button>)}
-          </div>
-        </div>
-      </div>}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       </div>
     </ThemeContext.Provider>
   )

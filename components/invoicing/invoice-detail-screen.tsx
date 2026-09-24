@@ -7,6 +7,7 @@ import { Download, Send } from 'lucide-react'
 
 import { ButtonPrimary, ButtonSecondary, SectionLabel } from '@/components/finance-shell'
 import { Field, FormError, inputClassName } from '@/components/form/field'
+import { StrongConfirm } from '@/components/ui/strong-confirm'
 import type {
   clients as clientsTable,
   invoiceAuditLog as invoiceAuditLogTable,
@@ -76,6 +77,7 @@ export function InvoiceDetailScreen({
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [paymentState, paymentAction, paymentPending] = useActionState(recordPaymentAction, paymentInitial)
 
   const publicUrl = typeof window !== 'undefined' ? `${window.location.origin}/public/invoices/${invoice.publicToken}` : ''
@@ -117,6 +119,7 @@ export function InvoiceDetailScreen({
     setError(null)
     const result = await cancelInvoiceAction(invoice.id)
     setBusy(false)
+    setConfirmingCancel(false)
     if (result.creditNoteId) router.push(`/invoices/${result.creditNoteId}`)
     else if (result.error) setError(result.error)
   }
@@ -161,7 +164,9 @@ export function InvoiceDetailScreen({
               <ButtonSecondary onClick={handleRemind}>{busy ? '…' : 'Relancer'}</ButtonSecondary>
             )}
             {!isCredit && ['issued', 'sent', 'partially_paid', 'overdue'].includes(invoice.status) && (
-              <ButtonSecondary onClick={handleCancel}>{busy ? '…' : 'Annuler (avoir total)'}</ButtonSecondary>
+              <ButtonSecondary onClick={() => setConfirmingCancel((v) => !v)}>
+                {confirmingCancel ? 'Fermer' : 'Annuler (avoir total)'}
+              </ButtonSecondary>
             )}
             {invoice.status !== 'draft' && (
               <a href={`/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer">
@@ -174,6 +179,18 @@ export function InvoiceDetailScreen({
         </div>
 
         {error && <p className="mt-4 font-mono text-xs text-[var(--pink)]">{error}</p>}
+        {confirmingCancel && (
+          <div className="mt-4">
+            <StrongConfirm
+              title="ANNULER CETTE FACTURE"
+              warning="Génère un avoir total et marque la facture annulée — cette action est irréversible, elle ne peut pas être défaite."
+              promptLabel={`Tape ${invoice.fullNumber ?? "le numéro de la facture"} pour confirmer`}
+              matchValue={invoice.fullNumber ?? ''}
+              confirmLabel={busy ? '…' : "Confirmer l'annulation"}
+              onConfirm={handleCancel}
+            />
+          </div>
+        )}
         {missingMentions && missingMentions.length > 0 && (
           <div className="mt-4 border-2 border-dashed border-[var(--ink)] p-3 font-mono text-xs">
             Mentions manquantes à l&apos;émission (facture émise quand même) : {missingMentions.join(', ')}.{' '}

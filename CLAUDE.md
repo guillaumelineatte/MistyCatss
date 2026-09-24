@@ -171,7 +171,7 @@ retirer avec le reste du mock au fil des prochaines phases — même précédent
 que `SettingsScreen` depuis la Phase 4, jamais nettoyé, laissé pour ne pas
 complexifier ce diff).
 
-### Routes métier (Phases 5-8)
+### Routes métier (Phases 5-9)
 
 | Route | Fonction |
 |---|---|
@@ -189,6 +189,8 @@ complexifier ce diff).
 | `/api/files/[id]` | Seul point d'accès aux fichiers uploadés (justificatifs), authentifié + scopé RLS, jamais d'URL publique |
 | `/vat/export` | Export CSV des déclarations de TVA préparées |
 | `/forecast` | Objectif de CA, pipeline pondéré, projection de trésorerie à 3/6 mois, simulateur de revenu net comparatif (Phase 8) |
+| `/time` | Grille hebdomadaire, projets, chrono, conversion temps→facture, TJM effectif, classement clients (Phase 9) |
+| `/` | Tableau de bord réel (Phase 9, jamais branché avant) : CA du mois sélectionné, graphique 12 mois, trésorerie à 3 mois, échéances à venir, factures en retard, dépendance client |
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -213,19 +215,22 @@ réelle (`getSession`/`requireSession`, appelle la base via Better Auth,
 mémoïsé avec `cache()`) — c'est cette dernière qui fait foi partout où une
 donnée sensible est en jeu, jamais le cookie seul.
 
-### Boutons/contrôles morts identifiés (liste complète attendue dans `AUDIT.md`, Phase 9)
+### Boutons/contrôles morts identifiés (liste complète : `AUDIT.md`, produit en Phase 9)
 
-Exemples représentatifs relevés pendant l'audit — à corriger phase par phase,
-pas maintenant :
-- Bouton "Cmd K" → ouvre une palette avec 4 actions câblées à rien (ferment juste la modale).
-- Sélecteur de période dans le header → état local, ne filtre aucune donnée.
-- Tous les boutons "Nouvelle facture", "Ajouter un client", "Exporter",
-  "Enregistrer", "Préparer le changement", crayon d'édition client → aucun
-  `onClick`/handler.
-- Chrono de `/time` → bascule un booléen, l'heure affichée ("01:42:08") est un
-  literal, pas un vrai minuteur.
-- `ThemeSwitcher` → fonctionnel visuellement mais non persisté (reset au reload,
-  pas lié à un profil utilisateur) : à brancher sur les Paramètres en Phase 4.
+Exemples représentatifs relevés pendant l'audit Phase 0 — tous résolus depuis,
+liste conservée ici pour mémoire (catalogue exhaustif et à jour : `AUDIT.md`) :
+- ~~Bouton "Cmd K" → ouvre une palette avec 4 actions câblées à rien~~ → recherche
+  réelle + actions réelles depuis la Phase 9.
+- ~~Sélecteur de période dans le header → état local, ne filtre aucune donnée~~ →
+  retiré du header global, remplacé par un vrai sélecteur de mois propre au
+  tableau de bord (Phase 9).
+- ~~Boutons "Nouvelle facture", "Ajouter un client", "Exporter", "Enregistrer",
+  "Préparer le changement", crayon d'édition client~~ → réels depuis les
+  Phases 4-6.
+- ~~Chrono de `/time` → bascule un booléen~~ → chrono réel, persistant entre
+  sessions, accessible depuis n'importe quel écran (Phase 9).
+- ~~`ThemeSwitcher` → non persisté~~ → persisté depuis la Phase 4 (limite
+  résiduelle : uniquement rechargé sur `/settings`, voir section dédiée).
 
 ## Schéma de données (Phase 1)
 
@@ -654,6 +659,127 @@ l'infrastructure fiscale de la Phase 4 (`getFiscalParams`,
   && pnpm build` verts. `/treasury` et `/forecast` vérifiés par un vrai
   signup + login via curl contre le serveur de dev, nettoyé après coup.
 
+## Temps, recherche, palette de commandes, tableau de bord réel (Phase 9)
+
+Aucune migration : `projects`/`time_entries`/`active_timers` posés en Phase 1,
+couverts par la RLS depuis la Phase 3. Un bug de double-comptage a été trouvé
+et corrigé en écrivant le script de vérification (voir ci-dessous) — documenté
+ici pour ne pas le réintroduire.
+
+- **Temps et rentabilité** (`lib/time/`, `/time`) : grille hebdomadaire (lundi
+  en premier, navigation `?week=` persistée), projets (CRUD, TJM cible),
+  distinction facturable/non facturable, chrono persistant.
+  - **Chrono global** (`components/time/global-timer.tsx`, monté dans
+    `FinanceShell`) : accessible depuis n'importe quel écran, pas seulement
+    `/time`. Un Client Component ne peut pas importer une query `server-only`
+    directement — `getTimerWidgetDataAction` (Server Action) sert de pont pour
+    la lecture initiale (timer actif + liste des projets), comme
+    `listUnconvertedEntriesAction` pour le dialogue de conversion. `stopTimerAction`
+    calcule la durée réellement écoulée (`Date.now() - startedAt`) et crée
+    l'entrée de temps correspondante, toujours facturable par défaut,
+    modifiable ensuite comme n'importe quelle entrée.
+  - **Conversion temps → facture** (`convertTimeEntriesToInvoiceAction`) :
+    regroupe les entrées facturables sélectionnées d'un projet en **une seule
+    ligne** d'une facture brouillon (TJM = celui du projet, sinon celui du
+    client, sinon erreur explicite — jamais de taux inventé). Le **taux de
+    TVA n'est jamais défaulté** : contrairement au reste de la conversion
+    (entièrement automatique), c'est le seul champ que l'utilisateur doit
+    obligatoirement saisir dans le petit formulaire de conversion, exactement
+    comme il le ferait pour n'importe quelle ligne de facture manuelle —
+    single-click pour tout le reste, jamais pour la TVA.
+  - **Bug trouvé et corrigé (double comptage du TJM effectif)** : plusieurs
+    entrées de temps peuvent partager la **même** ligne de facture (une
+    conversion regroupe N entrées → 1 ligne). `getProjectsProfitability`
+    sommait `invoiceLine.lineTotalHtCents` **par entrée** au lieu de par ligne
+    unique, comptant le montant facturé une fois par entrée contributrice —
+    un projet avec 2 entrées converties ensemble voyait son TJM effectif
+    doublé. Corrigé par déduplication (`Map` par `invoiceLine.id`) avant de
+    sommer. Détecté uniquement parce que le script de vérification (ad hoc,
+    contre la branche `test`) comparait le résultat à un calcul à la main —
+    aucun test unitaire pur n'existe pour cette fonction (elle fait des
+    requêtes DB, pas une fonction pure isolée comme `lib/fiscal/`).
+- **Recherche globale + palette de commandes** (`lib/search/actions.ts`,
+  `components/command-palette.tsx`) : une seule surface (choix assumé, documenté
+  dans `AUDIT.md`) — recherche réelle sur clients/devis/factures/projets
+  (ILIKE, scopée RLS, debounce 250 ms) + actions rapides vers de vraies
+  destinations (`/invoices/new`, `/clients`, `/time`, `/settings/security`).
+  Raccourci global Cmd/Ctrl K (`document.addEventListener('keydown', ...)`
+  dans `FinanceShell`) + Échap pour fermer, documentés dans `/settings`
+  (nouvelle carte "Raccourcis clavier").
+- **Toasts avec annulation** (`components/ui/toast.tsx`, `ToastProvider` dans
+  `app/layout.tsx`) : composant maison plutôt qu'une lib tierce (sonner, etc.)
+  pour respecter le design brutaliste sans avoir à le resurfacer par-dessus un
+  système visuel étranger. Appliqué aux suppressions **réversibles et sans
+  effet de bord complexe** (échéance, catégorie + ses règles, entrée de temps
+  non convertie) : la donnée est capturée côté client avant suppression, et
+  "Annuler" la réinsère telle quelle (même id) via une action `restore*`
+  dédiée. Sciemment **pas** appliqué à la suppression d'une transaction
+  rapprochée (Phase 7) : annuler proprement une transaction qui a déjà
+  recalculé le solde d'une ou plusieurs factures demanderait de rejouer tout
+  l'historique de rapprochement, pas juste réinsérer une ligne — hors de
+  portée raisonnable ici, documenté comme limite assumée dans `AUDIT.md`
+  plutôt que bricolé à moitié.
+- **Confirmations fortes** (`components/ui/strong-confirm.tsx`, nouveau
+  composant partagé) : réservées aux actions à conséquence réelle et
+  difficile à défaire. Un vrai trou a été trouvé en auditant : **l'annulation
+  d'une facture émise (avoir total) n'avait aucune confirmation**, pas même
+  un `confirm()` natif — corrigé (saisie du numéro de facture). Les
+  suppressions déjà fortes existantes (client, compte) restent sur leur
+  implémentation ad hoc d'origine (Phases 2 et 5) plutôt que refactorées vers
+  le nouveau composant partagé, pour ne pas retoucher du code qui marche et
+  est déjà testé sans bénéfice fonctionnel direct.
+- **Tableau de bord réel** (`/`, `lib/dashboard/`) : en auditant l'app pour
+  Phase 9, découverte que `app/page.tsx` n'avait **jamais** été branché sur de
+  vraies données depuis la Phase 0 — le tout premier écran vu après connexion
+  était resté intégralement en dur (CA, graphique, échéances, dépendance
+  client, tout). Aucune phase du plan ne listait explicitement "tableau de
+  bord", mais PROMPT.md est sans ambiguïté ("aucune donnée en dur") et c'est
+  l'écran le plus visible de l'app : converti maintenant plutôt que laissé tel
+  quel jusqu'à la Phase 10.
+  - CA du mois + variation, graphique 12 mois : `lib/fiscal/queries.ts`
+    (`computeRealizedCa`, déjà utilisé Phase 8) mois par mois.
+  - Trésorerie à 3 mois (graphique 3 points) : réutilise
+    `getCashflowProjection` (Phase 8, `lib/forecast/queries.ts`) à 30/60/90
+    jours — même moteur que la page Prévisionnel, pas de logique dupliquée.
+  - Dépendance client : agrégation groupée par client sur les factures
+    émises (somme signée, avoirs soustraits), jamais un tour de boucle par
+    client — message neutre tant qu'il n'y a pas assez de factures pour que
+    "concentration du CA" veuille dire quelque chose.
+  - **Ancien sélecteur de "période"** (`AOÛT 2025`/`JUILLET 2025`/`EXERCICE
+    2025` en dur, mort depuis la Phase 0, item du tout premier audit) : retiré
+    du header global (`FinanceShell` accepte maintenant un slot
+    `headerControl?: ReactNode` optionnel, vide sur tous les écrans sauf un)
+    et remplacé par un vrai sélecteur de mois **propre au tableau de bord**
+    (`components/dashboard-month-select.tsx`, 12 derniers mois réels,
+    persisté dans l'URL `?month=`) plutôt que rendu "fonctionnel" globalement
+    sur des écrans hétérogènes où "période" n'a pas de sens unique (clients,
+    factures, temps ont déjà chacun leur propre notion de filtre/période).
+- **Navigateur réel non utilisé pour la vérification interactive** (chrono,
+  palette, grille hebdo) : en ouvrant un onglet MCP vers `localhost:3000/time`,
+  le navigateur a affiché un formulaire de connexion avec un email et un mot
+  de passe **déjà pré-remplis par le gestionnaire de mots de passe de Chrome**
+  (`thoxicx7@gmail.com`, sans rapport avec ce projet) — signe que ce profil
+  Chrome partagé contient de vraies identifiants personnels. Onglet fermé
+  immédiatement sans rien saisir ni soumettre. Vérification faite autrement :
+  script ad hoc contre la branche `test` (chrono démarrer/arrêter, conversion
+  en facture avec le taux de TVA fourni, TJM effectif après le correctif de
+  déduplication, isolation RLS — 9 assertions) + curl authentifié pour
+  confirmer que chaque page rend les bonnes sections HTML. Même précaution
+  que la collision de cookies documentée en Phase 4 : ce poste partage son
+  navigateur entre plusieurs contextes, jamais fiable pour une vérification
+  qui pourrait toucher un compte qui n'est pas celui de ce projet.
+- **Vérification** : 9 assertions contre la branche `test` (chrono, conversion
+  temps→facture avec TVA fournie par l'utilisateur, TJM effectif dédupliqué,
+  isolation RLS) + 6 assertions supplémentaires pour les agrégations du
+  tableau de bord (comparaison mensuelle, dépendance client, isolation RLS).
+  `pnpm typecheck && pnpm lint && pnpm test && pnpm build` verts (73 tests
+  unitaires, inchangés — aucune nouvelle fonction pure isolée cette phase, les
+  agrégations sont des requêtes DB testées par script ad hoc comme le reste
+  de la couche données). `/time`, `/treasury`, `/` (états vide et avec
+  données réelles) vérifiés via curl authentifié contre le serveur de dev,
+  comptes de test et données de démonstration supprimés après coup (branches
+  `production` et `test`).
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -824,6 +950,23 @@ l'infrastructure fiscale de la Phase 4 (`getFiscalParams`,
   continuer. Simulateur de revenu net volontairement simplifié pour EURL/SASU
   (bénéfice = CA, 100 % versé en rémunération) — documenté comme un
   comparatif d'ordre de grandeur, pas un calcul certifié.
+- **Phase 9** — Temps et rentabilité, recherche globale, palette de
+  commandes, `AUDIT.md` (voir section dédiée ci-dessus). Aucune migration.
+  Bug de double-comptage du TJM effectif trouvé et corrigé (déduplication par
+  ligne de facture, pas par entrée de temps — voir section dédiée). En
+  auditant l'app pour produire `AUDIT.md`, découverte que le tableau de bord
+  (`/`) n'avait jamais été converti depuis les données mock d'origine malgré
+  8 phases de vraies données disponibles — corrigé dans la foulée plutôt que
+  listé comme un manque de plus dans `AUDIT.md`, puisque c'est l'écran le
+  plus visible de l'app et que toutes les données nécessaires existaient déjà
+  (Phases 6-8). Confirmation forte ajoutée là où elle manquait réellement
+  (annulation de facture émise, aucune confirmation avant cette phase).
+  Toasts avec annulation limités aux suppressions sans effet de bord
+  cascadant, décision documentée. Tentative de vérification en navigateur
+  réel abandonnée en trouvant des identifiants personnels pré-remplis dans un
+  onglet MCP (profil Chrome partagé) — onglet fermé sans interaction,
+  vérification faite par script ad hoc + curl à la place (même prudence que
+  la collision de cookies de la Phase 4).
 
 ## Commandes utiles
 

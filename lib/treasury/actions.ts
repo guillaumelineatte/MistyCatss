@@ -98,6 +98,23 @@ export async function deleteCategoryAction(id: string): Promise<ActionResult> {
   return { success: true }
 }
 
+/**
+ * Ré-insère une catégorie supprimée et ses règles (supprimées en cascade
+ * avec elle) — annulation depuis le toast. Les deux insertions sont dans la
+ * même transaction scopée : soit tout revient, soit rien.
+ */
+export async function restoreCategoryAction(
+  category: typeof transactionCategories.$inferSelect,
+  rules: (typeof categoryRules.$inferSelect)[],
+): Promise<ActionResult> {
+  await withCurrentUserScope(async (tx) => {
+    await tx.insert(transactionCategories).values(category)
+    if (rules.length > 0) await tx.insert(categoryRules).values(rules)
+  })
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
 const categoryRuleSchema = z.object({
   matchPattern: z.string().trim().min(1, 'Le motif est requis.'),
   categoryId: z.string().min(1, 'Catégorie requise.'),
@@ -118,6 +135,12 @@ export async function createCategoryRuleAction(_prev: ActionResult, formData: Fo
 
 export async function deleteCategoryRuleAction(id: string): Promise<ActionResult> {
   await withCurrentUserScope((tx) => tx.delete(categoryRules).where(eq(categoryRules.id, id)))
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
+export async function restoreCategoryRuleAction(rule: typeof categoryRules.$inferSelect): Promise<ActionResult> {
+  await withCurrentUserScope((tx) => tx.insert(categoryRules).values(rule))
   revalidatePath('/treasury')
   return { success: true }
 }

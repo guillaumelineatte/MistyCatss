@@ -53,6 +53,13 @@ export async function deleteDeadlineAction(id: string): Promise<ActionResult> {
   return { success: true }
 }
 
+/** Ré-insère une échéance supprimée à l'identique (même id) — annulation depuis le toast. */
+export async function restoreDeadlineAction(deadline: typeof deadlines.$inferSelect): Promise<ActionResult> {
+  await withCurrentUserScope((tx) => tx.insert(deadlines).values(deadline))
+  revalidatePath('/treasury')
+  return { success: true }
+}
+
 export async function sendDeadlineReminderAction(id: string): Promise<ActionResult> {
   const session = await requireSession()
   const deadline = await withCurrentUserScope((tx) => tx.query.deadlines.findFirst({ where: eq(deadlines.id, id) }))

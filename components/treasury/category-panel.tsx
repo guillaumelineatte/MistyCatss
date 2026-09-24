@@ -6,12 +6,15 @@ import { Trash2 } from 'lucide-react'
 
 import { ButtonPrimary, ButtonSecondary, SectionLabel } from '@/components/finance-shell'
 import { Field, FormError, inputClassName } from '@/components/form/field'
+import { useToast } from '@/components/ui/toast'
 import type { categoryRules as categoryRulesTable, transactionCategories as categoriesTable } from '@/db/schema'
 import {
   createCategoryAction,
   createCategoryRuleAction,
   deleteCategoryAction,
   deleteCategoryRuleAction,
+  restoreCategoryAction,
+  restoreCategoryRuleAction,
   type ActionResult,
 } from '@/lib/treasury/actions'
 
@@ -22,6 +25,7 @@ const initialState: ActionResult = {}
 
 export function CategoryPanel({ categories, rules }: { categories: Category[]; rules: CategoryRule[] }) {
   const router = useRouter()
+  const { showToast } = useToast()
   const [categoryState, categoryFormAction, categoryPending] = useActionState(createCategoryAction, initialState)
   const [ruleState, ruleFormAction, rulePending] = useActionState(createCategoryRuleAction, initialState)
   const [open, setOpen] = useState(false)
@@ -31,14 +35,35 @@ export function CategoryPanel({ categories, rules }: { categories: Category[]; r
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryState.success, ruleState.success])
 
-  async function onDeleteCategory(id: string) {
-    await deleteCategoryAction(id)
+  async function onDeleteCategory(category: Category) {
+    const orphanedRules = rules.filter((rule) => rule.categoryId === category.id)
+    await deleteCategoryAction(category.id)
     router.refresh()
+    showToast({
+      message: `Catégorie "${category.name}" supprimée.`,
+      action: {
+        label: 'Annuler',
+        onClick: async () => {
+          await restoreCategoryAction(category, orphanedRules)
+          router.refresh()
+        },
+      },
+    })
   }
 
-  async function onDeleteRule(id: string) {
-    await deleteCategoryRuleAction(id)
+  async function onDeleteRule(rule: CategoryRule) {
+    await deleteCategoryRuleAction(rule.id)
     router.refresh()
+    showToast({
+      message: `Règle "${rule.matchPattern}" supprimée.`,
+      action: {
+        label: 'Annuler',
+        onClick: async () => {
+          await restoreCategoryRuleAction(rule)
+          router.refresh()
+        },
+      },
+    })
   }
 
   return (
@@ -70,7 +95,7 @@ export function CategoryPanel({ categories, rules }: { categories: Category[]; r
               {categories.map((category) => (
                 <div key={category.id} className="flex items-center justify-between border-b border-[var(--ink)]/30 pb-2">
                   <span>{category.name} <span className="text-[var(--ink)]/50">· {category.kind === 'income' ? 'entrée' : 'sortie'}</span></span>
-                  <button aria-label={`Supprimer ${category.name}`} onClick={() => onDeleteCategory(category.id)}>
+                  <button aria-label={`Supprimer ${category.name}`} onClick={() => onDeleteCategory(category)}>
                     <Trash2 className="size-4" />
                   </button>
                 </div>
@@ -102,7 +127,7 @@ export function CategoryPanel({ categories, rules }: { categories: Category[]; r
               {rules.map((rule) => (
                 <div key={rule.id} className="flex items-center justify-between border-b border-[var(--ink)]/30 pb-2">
                   <span>&quot;{rule.matchPattern}&quot; → {rule.category?.name ?? '—'}</span>
-                  <button aria-label="Supprimer la règle" onClick={() => onDeleteRule(rule.id)}>
+                  <button aria-label="Supprimer la règle" onClick={() => onDeleteRule(rule)}>
                     <Trash2 className="size-4" />
                   </button>
                 </div>

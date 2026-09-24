@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
+import { ToastProvider } from '@/components/ui/toast'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -38,7 +39,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className="antialiased grain">
-        <NuqsAdapter>{children}</NuqsAdapter>
+        <NuqsAdapter>
+          <ToastProvider>{children}</ToastProvider>
+        </NuqsAdapter>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

@@ -4,10 +4,18 @@ import { useActionState, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Bell, Check, SkipForward, Trash2 } from 'lucide-react'
 
-import { ButtonPrimary, ButtonSecondary, SectionLabel } from '@/components/finance-shell'
+import { ButtonPrimary, SectionLabel } from '@/components/finance-shell'
 import { FormError, inputClassName } from '@/components/form/field'
+import { useToast } from '@/components/ui/toast'
 import type { deadlines as deadlinesTable } from '@/db/schema'
-import { createDeadlineAction, deleteDeadlineAction, markDeadlineAction, sendDeadlineReminderAction, type ActionResult } from '@/lib/deadlines/actions'
+import {
+  createDeadlineAction,
+  deleteDeadlineAction,
+  markDeadlineAction,
+  restoreDeadlineAction,
+  sendDeadlineReminderAction,
+  type ActionResult,
+} from '@/lib/deadlines/actions'
 import { formatEuros } from '@/lib/money'
 
 type Deadline = typeof deadlinesTable.$inferSelect
@@ -17,6 +25,7 @@ const initialState: ActionResult = {}
 
 export function DeadlinesPanel({ deadlines }: { deadlines: Deadline[] }) {
   const router = useRouter()
+  const { showToast } = useToast()
   const [state, formAction, pending] = useActionState(createDeadlineAction, initialState)
   const [showDone, setShowDone] = useState(false)
 
@@ -32,10 +41,19 @@ export function DeadlinesPanel({ deadlines }: { deadlines: Deadline[] }) {
     router.refresh()
   }
 
-  async function onDelete(id: string) {
-    if (!confirm('Supprimer cette échéance ?')) return
-    await deleteDeadlineAction(id)
+  async function onDelete(deadline: Deadline) {
+    await deleteDeadlineAction(deadline.id)
     router.refresh()
+    showToast({
+      message: `Échéance ${kindLabels[deadline.kind]} du ${deadline.dueDate.split('-').reverse().join('/')} supprimée.`,
+      action: {
+        label: 'Annuler',
+        onClick: async () => {
+          await restoreDeadlineAction(deadline)
+          router.refresh()
+        },
+      },
+    })
   }
 
   async function onRemind(id: string) {
@@ -99,7 +117,7 @@ export function DeadlinesPanel({ deadlines }: { deadlines: Deadline[] }) {
                   </button>
                 </>
               )}
-              <button aria-label="Supprimer l'échéance" onClick={() => onDelete(deadline.id)}>
+              <button aria-label="Supprimer l'échéance" onClick={() => onDelete(deadline)}>
                 <Trash2 className="size-4" />
               </button>
             </div>

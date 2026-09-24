@@ -54,6 +54,29 @@ export function GeneralSettings({
       <StatusPeriodsCard periods={periods} />
       <PreferencesCard preferences={preferences} />
       <NumberingSeriesCard series={series} />
+      <KeyboardShortcutsCard />
+    </div>
+  )
+}
+
+const shortcuts = [
+  { keys: '⌘ K / Ctrl K', description: 'Ouvrir la palette de commandes (recherche globale + actions rapides)' },
+  { keys: 'Échap', description: 'Fermer la palette de commandes' },
+]
+
+function KeyboardShortcutsCard() {
+  return (
+    <div className="border-2 border-[var(--ink)] bg-[var(--paper)] p-6 shadow-[6px_6px_0_var(--ink)]">
+      <SectionLabel tone="blue">Raccourcis</SectionLabel>
+      <h2 className="mt-4 text-3xl">RACCOURCIS CLAVIER</h2>
+      <div className="mt-5 flex flex-col gap-3 font-mono text-xs">
+        {shortcuts.map((shortcut) => (
+          <div key={shortcut.keys} className="flex items-center justify-between border-b border-[var(--ink)]/20 pb-3">
+            <span className="border border-[var(--ink)] px-2 py-1 font-bold uppercase">{shortcut.keys}</span>
+            <span className="text-[var(--ink)]/70">{shortcut.description}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
