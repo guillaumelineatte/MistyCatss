@@ -139,6 +139,10 @@ lib/documents/quote-pdf.tsx, quote-exporter.ts, fonts.ts
 assets/fonts/                    .ttf vendorisés pour l'embarquement PDF (voir décisions Phase 5)
 components/clients/, components/quotes/
 app/clients/, app/quotes/, app/invoices/, app/public/quotes/[token]/
+lib/invoicing/                   actions.ts (émission/avoir/paiement/relance), queries.ts, legal-mentions.ts (pur)
+lib/invoicing/accounting-export.ts  CSV + FEC
+lib/documents/invoice-pdf.tsx, invoice-exporter.ts
+components/invoicing/, app/invoices/[id]/, app/invoices/new/, app/public/invoices/[token]/
 db/
   client.ts               instance Drizzle neondb_owner (BYPASSRLS — admin/migrations/seed/Better Auth)
   scoped-client.ts         instance Drizzle app_scoped (NOBYPASSRLS — lib/db/scope.ts uniquement)
@@ -166,16 +170,20 @@ vitest.config.mts
 restent définis dans `finance-screens.tsx` mais ne sont plus importés nulle
 part (morts, à retirer avec le reste du mock au fil des prochaines phases).
 
-### Routes métier (Phase 5)
+### Routes métier (Phases 5-6)
 
 | Route | Fonction |
 |---|---|
 | `/clients`, `/clients/[id]` | Liste + fiche client (CRUD, indicateurs, archivage) |
-| `/invoices` | Vue combinée devis + factures (factures en lecture seule, Phase 6) |
+| `/invoices` | Vue combinée devis + factures, export CSV/FEC |
 | `/quotes/new`, `/quotes/[id]` | Création/édition/envoi/duplication/conversion de devis |
 | `/quotes/[id]/pdf` | PDF du devis, protégé par session |
 | `/public/quotes/[token]` | Consultation publique + acceptation/refus en ligne, sans session |
 | `/public/quotes/[token]/pdf` | PDF public par jeton |
+| `/invoices/new`, `/invoices/[id]` | Création/édition (brouillon)/émission/envoi/paiement/avoir |
+| `/invoices/[id]/pdf` | PDF de la facture, protégé par session |
+| `/invoices/export?format=csv\|fec` | Export comptable |
+| `/public/invoices/[token]`, `/public/invoices/[token]/pdf` | Consultation publique, sans session |
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -434,6 +442,69 @@ interdit explicitement.
   listant devis + factures (les factures restent en lecture seule tant que
   la Phase 6 n'a pas construit leur cycle de vie complet).
 
+## Factures (Phase 6)
+
+**La partie la plus sensible du cahier des charges** — traitée avec le même
+niveau de rigueur que l'architecture le permettait déjà (triggers Postgres
+Phase 1, numérotation atomique testée en concurrence Phase 5).
+
+- **Émission** (`issueInvoiceAction`, `lib/invoicing/actions.ts`) : une seule
+  transaction scopée qui (1) résout le statut juridique EN VIGUEUR à la date
+  d'émission (`getStatusPeriodAtDate`, jamais le statut "actuel"), (2) résout
+  les mentions légales (`resolveLegalMentions`, fonction pure testée
+  unitairement avec des paramètres fictifs explicites — jamais de valeur
+  réelle en dur), (3) réserve le numéro (`getNextDocumentNumber`, la même
+  fonction que les devis, déjà testée en concurrence Phase 5), (4) fige tout
+  dans `legal_snapshot` (jsonb). Fonctionne même sans entreprise/statut
+  configuré : émet quand même, journalise les mentions manquantes dans
+  `invoice_audit_log.metadata`, l'interface les affiche après coup — jamais
+  de blocage, jamais de valeur inventée à la place.
+- **Immuabilité — vérifiée activement, pas seulement supposée** : un script
+  de vérification (voir journal ci-dessous) a tenté de modifier les montants
+  d'une facture émise via `withUserScope` (rejeté par le trigger) ET de la
+  supprimer via la connexion **admin** qui contourne la RLS (rejetée quand
+  même — le trigger d'immuabilité ne dépend pas du rôle Postgres connecté,
+  contrairement à la RLS). C'est la garantie que PROMPT.md demande : aucun
+  chemin de code, même privilégié, ne peut altérer une facture émise.
+- **Avoirs** : `cancelInvoiceAction` (avoir total = mêmes lignes exactes que
+  l'originale, statut original → `cancelled`) et `createCreditNoteAction`
+  (lignes libres). Numérotés dans leur propre série (`kind: 'credit_note'`,
+  préfixe `A`). Un avoir est inséré en `draft` puis immédiatement passé à
+  `issued` en deux étapes dans la même transaction — pas par choix de
+  workflow (l'utilisateur ne voit jamais cet état intermédiaire) mais parce
+  que le trigger d'immuabilité des lignes exige que la facture parente soit
+  encore `draft` au moment où ses lignes sont insérées.
+- **CA et encours** (`lib/clients/queries.ts`, `invoices-overview-screen.tsx`)
+  soustraient désormais les avoirs plutôt que de les additionner (somme
+  signée SQL) : un avoir de 100 € réduit le CA du client de 100 €, il ne
+  s'y ajoute jamais.
+- **Paiements** : `recordPaymentAction` insère `invoice_payments` (pas encore
+  relié à une transaction bancaire — Phase 7) et fait passer le statut à
+  `partially_paid` ou `paid` selon le solde. Relances (`sendReminderAction`) :
+  manuelles pour l'instant, la "proposition automatique" se fait par lecture
+  paresseuse (`listInvoices` bascule en `overdue` les factures échues non
+  soldées à chaque affichage de la liste, comme l'expiration des devis) en
+  attendant le vrai cron (Phase 10).
+- **PDF** : `InvoiceExporter` (`lib/documents/invoice-exporter.ts`) implémente
+  `DocumentExporter<T>` (même interface que les devis, Phase 5), toujours en
+  PDF "classique" — ni XML CII ni PDF/A-3 Factur-X (PROMPT.md le demande
+  explicitement en l'état). Le schéma porte déjà les champs Factur-X
+  (`buyer_reference`, `payment_means_code`, `vat_category_code` par ligne,
+  `reverse_charge`) pour qu'une implémentation future substitue l'exporteur
+  sans toucher au code appelant.
+- **Export comptable** (`lib/invoicing/accounting-export.ts`) : CSV simple +
+  FEC (format réglementaire français, tabulations, une écriture équilibrée
+  débit/crédit par facture — 411 Clients / 706 Ventes / 445711 TVA collectée,
+  inversée pour un avoir). Ces trois comptes sont une classification du Plan
+  Comptable Général standard, pas un paramètre propre à l'utilisateur — donc
+  pas concernés par l'interdiction d'inventer des taux/barèmes. Testé :
+  chaque écriture s'équilibre exactement (`lib/invoicing/__tests__/accounting-export.test.ts`).
+- **Mentions légales manquantes** : trois nouveaux champs sur `companies`
+  (`default_escompte_conditions`, `default_late_penalty_rate_basis_points`,
+  `default_late_recovery_indemnity_cents`, migration 0009), saisissables
+  depuis `/settings`. Absents par défaut, comme tout le reste — jamais de
+  barème légal deviné à leur place.
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -573,6 +644,15 @@ interdit explicitement.
   concurrence livrés en avance sur la Phase 6 qui les réutilisera pour les
   factures. Fonts PDF vendorisées en `.ttf` dans `assets/fonts/` après avoir
   découvert que `@fontsource` (woff/woff2) fait planter l'embarquement fontkit.
+- **Phase 6** — Factures (voir section dédiée ci-dessus). Bug trouvé et
+  corrigé en écrivant l'avoir : insérer directement une facture avec
+  `status: 'issued'` fait échouer l'insertion de ses lignes (le trigger
+  d'immuabilité des lignes exige `draft` au moment de l'insert) — toujours
+  `draft` → lignes → `UPDATE status = 'issued'`, jamais l'inverse, quel que
+  soit le type de document. Vérification active (pas seulement des tests
+  unitaires) : script contre la branche `test` qui tente de contourner
+  l'immuabilité (montants + suppression, y compris via la connexion admin
+  qui bypasse la RLS) — les deux tentatives ont été rejetées comme prévu.
 
 ## Commandes utiles
 

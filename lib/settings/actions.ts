@@ -33,6 +33,7 @@ const companySchema = z.object({
   phone: z.string().trim().optional(),
   email: z.email().optional().or(z.literal('')),
   website: z.string().trim().optional(),
+  defaultEscompteConditions: z.string().trim().optional(),
 })
 
 export async function updateCompanyAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
@@ -42,14 +43,30 @@ export async function updateCompanyAction(_prev: ActionResult, formData: FormDat
 
   const session = await requireSession()
   const shareCapitalCents = eurosToCentsOrNull(formData.get('shareCapital'))
+  const defaultLateRecoveryIndemnityCents = eurosToCentsOrNull(formData.get('defaultLateRecoveryIndemnity'))
+  const rawPenaltyRate = formData.get('defaultLatePenaltyRate')
+  const defaultLatePenaltyRateBasisPoints =
+    rawPenaltyRate && rawPenaltyRate !== '' ? Math.round(Number(rawPenaltyRate) * 100) : null
 
   await withCurrentUserScope((tx) =>
     tx
       .insert(companies)
-      .values({ userId: session.user.id, ...parsed.data, shareCapitalCents })
+      .values({
+        userId: session.user.id,
+        ...parsed.data,
+        shareCapitalCents,
+        defaultLateRecoveryIndemnityCents,
+        defaultLatePenaltyRateBasisPoints,
+      })
       .onConflictDoUpdate({
         target: companies.userId,
-        set: { ...parsed.data, shareCapitalCents, updatedAt: new Date() },
+        set: {
+          ...parsed.data,
+          shareCapitalCents,
+          defaultLateRecoveryIndemnityCents,
+          defaultLatePenaltyRateBasisPoints,
+          updatedAt: new Date(),
+        },
       }),
   )
 

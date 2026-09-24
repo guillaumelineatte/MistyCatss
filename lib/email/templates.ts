@@ -68,6 +68,26 @@ export function quoteSentEmail(quoteNumber: string, publicUrl: string) {
   }
 }
 
+export function invoiceSentEmail(invoiceNumber: string, publicUrl: string) {
+  return {
+    subject: `Facture ${invoiceNumber}`,
+    html: wrap(
+      `Facture ${invoiceNumber}`,
+      `<p>Voici ta facture, en pièce jointe et consultable en ligne.</p>${button(publicUrl, 'Consulter la facture')}`,
+    ),
+  }
+}
+
+export function invoiceReminderEmail(invoiceNumber: string, amountDue: string, publicUrl: string) {
+  return {
+    subject: `Rappel — Facture ${invoiceNumber} en attente de paiement`,
+    html: wrap(
+      'Rappel de paiement',
+      `<p>La facture ${invoiceNumber} d'un montant de ${amountDue} est toujours en attente de règlement.</p>${button(publicUrl, 'Consulter la facture')}`,
+    ),
+  }
+}
+
 export function deleteAccountEmail(url: string) {
   return {
     subject: 'Confirme la suppression de ton compte',

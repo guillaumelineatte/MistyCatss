@@ -28,6 +28,12 @@ export const companies = pgTable('companies', {
   email: text('email'),
   website: text('website'),
   logoFileId: text('logo_file_id'),
+  // Valeurs par défaut des mentions légales de facturation (Phase 6) : jamais
+  // de barème inventé en remplacement (PROMPT.md « Interdiction d'inventer »)
+  // — la facture s'émet quand même si absentes, avec un bandeau d'avertissement.
+  defaultEscompteConditions: text('default_escompte_conditions'),
+  defaultLatePenaltyRateBasisPoints: integer('default_late_penalty_rate_basis_points'),
+  defaultLateRecoveryIndemnityCents: integer('default_late_recovery_indemnity_cents'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })

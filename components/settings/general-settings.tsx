@@ -124,6 +124,45 @@ function CompanyCard({ company }: { company: Company | null }) {
             <input id="website" name="website" defaultValue={company?.website ?? ''} className={inputClassName} />
           </Field>
         </div>
+
+        <div className="border-t-2 border-[var(--ink)] pt-6">
+          <SectionLabel tone="pink">Mentions légales factures</SectionLabel>
+          <p className="mt-3 max-w-xl font-mono text-xs text-[var(--ink)]/60">
+            Valeurs par défaut reprises sur chaque facture à l&apos;émission. Laissées vides, la facture s&apos;émet
+            quand même — un bandeau dans l&apos;app signale la mention manquante.
+          </p>
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <Field label="Conditions d'escompte" htmlFor="defaultEscompteConditions">
+              <input
+                id="defaultEscompteConditions"
+                name="defaultEscompteConditions"
+                placeholder="Ex. Pas d'escompte pour paiement anticipé"
+                defaultValue={company?.defaultEscompteConditions ?? ''}
+                className={inputClassName}
+              />
+            </Field>
+            <Field label="Taux de pénalités de retard — %" htmlFor="defaultLatePenaltyRate">
+              <input
+                id="defaultLatePenaltyRate"
+                name="defaultLatePenaltyRate"
+                type="number"
+                step="0.01"
+                defaultValue={company?.defaultLatePenaltyRateBasisPoints != null ? company.defaultLatePenaltyRateBasisPoints / 100 : ''}
+                className={inputClassName}
+              />
+            </Field>
+            <Field label="Indemnité forfaitaire de recouvrement — €" htmlFor="defaultLateRecoveryIndemnity">
+              <input
+                id="defaultLateRecoveryIndemnity"
+                name="defaultLateRecoveryIndemnity"
+                type="number"
+                step="0.01"
+                defaultValue={company?.defaultLateRecoveryIndemnityCents != null ? company.defaultLateRecoveryIndemnityCents / 100 : ''}
+                className={inputClassName}
+              />
+            </Field>
+          </div>
+        </div>
       </form>
     </div>
   )

@@ -31,21 +31,22 @@ export type ClientIndicators = {
  * CA cumulé, encours, délai de paiement moyen et part du CA total pour un
  * client — calculés à la volée à partir des factures ÉMISES (status != draft
  * ni cancelled), jamais stockés (ils évoluent avec chaque facture/paiement).
+ * Les avoirs (type = 'credit_note') sont soustraits du CA, jamais additionnés.
  */
 export async function getClientIndicators(clientId: string): Promise<ClientIndicators> {
   return withCurrentUserScope(async (tx) => {
     const issuedStatuses = ['issued', 'sent', 'partially_paid', 'paid', 'overdue'] as const
+    // Somme signée : une ligne credit_note compte négativement dans le CA.
+    const signedTtc = sql<string>`coalesce(sum(case when ${invoices.type} = 'credit_note' then -${invoices.totalTtcCents} else ${invoices.totalTtcCents} end), 0)`
+    const signedPaid = sql<string>`coalesce(sum(case when ${invoices.type} = 'credit_note' then -${invoices.paidAmountCents} else ${invoices.paidAmountCents} end), 0)`
 
     const [clientTotals] = await tx
-      .select({
-        totalTtc: sql<string>`coalesce(sum(${invoices.totalTtcCents}), 0)`,
-        totalPaid: sql<string>`coalesce(sum(${invoices.paidAmountCents}), 0)`,
-      })
+      .select({ totalTtc: signedTtc, totalPaid: signedPaid })
       .from(invoices)
       .where(and(eq(invoices.clientId, clientId), inArray(invoices.status, [...issuedStatuses])))
 
     const [allClientsTotals] = await tx
-      .select({ totalTtc: sql<string>`coalesce(sum(${invoices.totalTtcCents}), 0)` })
+      .select({ totalTtc: signedTtc })
       .from(invoices)
       .where(inArray(invoices.status, [...issuedStatuses]))
 

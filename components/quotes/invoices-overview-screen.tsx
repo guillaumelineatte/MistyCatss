@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Download, Plus } from 'lucide-react'
 
-import { ButtonPrimary, StatCard } from '@/components/finance-shell'
+import { ButtonPrimary, ButtonSecondary, StatCard } from '@/components/finance-shell'
 import type { clients as clientsTable, invoices as invoicesTable, quotes as quotesTable } from '@/db/schema'
 import { formatEuros } from '@/lib/money'
 
@@ -31,7 +31,10 @@ const invoiceStatusLabels: Record<string, string> = {
 
 export function InvoicesOverviewScreen({ quotes, invoices }: { quotes: Quote[]; invoices: Invoice[] }) {
   const openQuotesTtc = quotes.filter((q) => q.status === 'sent').reduce((sum, q) => sum + q.totalTtcCents, 0)
-  const outstandingTtc = invoices.reduce((sum, i) => sum + (i.totalTtcCents - i.paidAmountCents), 0)
+  // Les avoirs (type credit_note) réduisent l'encours, ils ne s'y ajoutent jamais.
+  const outstandingTtc = invoices
+    .filter((i) => i.type !== 'credit_note')
+    .reduce((sum, i) => sum + (i.totalTtcCents - i.paidAmountCents), 0)
 
   return (
     <div className="flex flex-col gap-8">
@@ -73,23 +76,46 @@ export function InvoicesOverviewScreen({ quotes, invoices }: { quotes: Quote[]; 
       <div className="flex flex-col gap-4 border-2 border-[var(--ink)] bg-[var(--paper)] p-5 shadow-[6px_6px_0_var(--ink)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-3xl">FACTURES</h2>
-          <p className="font-mono text-[10px] uppercase text-[var(--ink)]/60">
-            Émission, numérotation et paiements — Phase 6
-          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/invoices/new">
+              <ButtonPrimary>
+                <Plus className="size-4" /> Nouvelle facture
+              </ButtonPrimary>
+            </Link>
+            {/* Téléchargements de fichier, pas des navigations de page : <a> natifs volontaires. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a href="/invoices/export?format=csv">
+              <ButtonSecondary>
+                <Download className="size-4" /> CSV
+              </ButtonSecondary>
+            </a>
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a href="/invoices/export?format=fec">
+              <ButtonSecondary>
+                <Download className="size-4" /> FEC
+              </ButtonSecondary>
+            </a>
+          </div>
         </div>
         {invoices.length === 0 ? (
           <p className="font-mono text-xs text-[var(--ink)]/60">
-            Aucune facture pour l&apos;instant. Elles apparaissent ici une fois un devis accepté converti.
+            Aucune facture pour l&apos;instant. Crée-la directement, ou convertis un devis accepté.
           </p>
         ) : (
           <div className="flex flex-col gap-2 font-mono text-xs">
             {invoices.map((invoice) => (
-              <div key={invoice.id} className="flex items-center justify-between border-b border-[var(--ink)]/30 py-3">
+              <Link
+                key={invoice.id}
+                href={`/invoices/${invoice.id}`}
+                className="flex items-center justify-between border-b border-[var(--ink)]/30 py-3 hover:bg-[var(--blue)]/10"
+              >
                 <span className="font-bold">{invoice.fullNumber ?? 'Brouillon'}</span>
                 <span>{invoice.client?.name}</span>
-                <span>{invoiceStatusLabels[invoice.status]}</span>
+                <span className={invoice.status === 'overdue' ? 'text-[var(--pink)]' : ''}>
+                  {invoice.type === 'credit_note' ? 'Avoir' : invoiceStatusLabels[invoice.status]}
+                </span>
                 <span className="font-bold">{formatEuros(invoice.totalTtcCents)}</span>
-              </div>
+              </Link>
             ))}
           </div>
         )}
