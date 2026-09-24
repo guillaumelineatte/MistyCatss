@@ -93,6 +93,9 @@ export const userPreferences = pgTable('user_preferences', {
   onboardingCompletedSteps: jsonb('onboarding_completed_steps').$type<string[]>().default([]),
   // Palette choisie dans le sélecteur de thème (finance-shell.tsx / theme-switcher.tsx).
   theme: text('theme').default('sauge'),
+  // Objectif de CA annuel (Phase 8, écran Prévisionnel) : saisi par
+  // l'utilisateur, jamais déduit — absent tant qu'il n'a rien renseigné.
+  annualRevenueGoalCents: integer('annual_revenue_goal_cents'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
 

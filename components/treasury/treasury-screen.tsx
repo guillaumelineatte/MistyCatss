@@ -8,16 +8,23 @@ import type {
   bankAccounts as bankAccountsTable,
   categoryRules as categoryRulesTable,
   clients as clientsTable,
+  deadlines as deadlinesTable,
   invoicePayments as invoicePaymentsTable,
   invoices as invoicesTable,
+  statusPeriods as statusPeriodsTable,
   transactionCategories as categoriesTable,
   transactions as transactionsTable,
+  vatPeriods as vatPeriodsTable,
 } from '@/db/schema'
+import type { FiscalParamsResult } from '@/lib/fiscal/get-params'
 import { formatEuros } from '@/lib/money'
 import { archiveBankAccountAction, unarchiveBankAccountAction } from '@/lib/treasury/actions'
 import { BankAccountForm } from './bank-account-form'
 import { CategoryPanel } from './category-panel'
+import { ChargesPanel } from './charges-panel'
+import { DeadlinesPanel } from './deadlines-panel'
 import { TransactionsPanel } from './transactions-panel'
+import { VatPanel } from './vat-panel'
 
 type Category = typeof categoriesTable.$inferSelect
 type BankAccount = typeof bankAccountsTable.$inferSelect & { balanceCents: number }
@@ -29,6 +36,9 @@ type Transaction = typeof transactionsTable.$inferSelect & {
   bankAccount: typeof bankAccountsTable.$inferSelect
   invoicePayments: InvoicePayment[]
 }
+type Deadline = typeof deadlinesTable.$inferSelect
+type VatPeriod = typeof vatPeriodsTable.$inferSelect
+type StatusPeriod = typeof statusPeriodsTable.$inferSelect
 
 export function TreasuryScreen({
   bankAccounts,
@@ -36,12 +46,22 @@ export function TreasuryScreen({
   categories,
   categoryRules,
   reconcilableInvoices,
+  deadlines,
+  vatPeriods,
+  statusPeriod,
+  fiscalParams,
+  realizedCaCents,
 }: {
   bankAccounts: BankAccount[]
   transactions: Transaction[]
   categories: Category[]
   categoryRules: CategoryRule[]
   reconcilableInvoices: Invoice[]
+  deadlines: Deadline[]
+  vatPeriods: VatPeriod[]
+  statusPeriod: StatusPeriod | null
+  fiscalParams: FiscalParamsResult | null
+  realizedCaCents: number
 }) {
   const router = useRouter()
   const [creatingAccount, setCreatingAccount] = useState(false)
@@ -103,6 +123,12 @@ export function TreasuryScreen({
         categories={categories}
         reconcilableInvoices={reconcilableInvoices}
       />
+
+      <ChargesPanel statusPeriod={statusPeriod} fiscalParams={fiscalParams} realizedCaCents={realizedCaCents} />
+
+      <DeadlinesPanel deadlines={deadlines} />
+
+      <VatPanel periods={vatPeriods} statusPeriod={statusPeriod} />
     </div>
   )
 }

@@ -107,3 +107,17 @@ export function changeEmailNoticeToOldAddress(url: string, newEmail: string) {
     ),
   }
 }
+
+const deadlineLabels: Record<string, string> = { urssaf: 'URSSAF', tva: 'TVA', is: "Impôt sur les sociétés", cfe: 'CFE' }
+
+export function deadlineReminderEmail(kind: string, dueDate: string, amountEstimate: string | null) {
+  const label = deadlineLabels[kind] ?? kind
+  const dueDateFr = dueDate.split('-').reverse().join('/')
+  return {
+    subject: `Rappel — Échéance ${label} le ${dueDateFr}`,
+    html: wrap(
+      'Échéance à venir',
+      `<p>Une échéance <strong>${label}</strong> arrive le <strong>${dueDateFr}</strong>${amountEstimate ? ` pour un montant estimé de ${amountEstimate}` : ''}.</p>`,
+    ),
+  }
+}

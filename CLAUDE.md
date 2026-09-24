@@ -160,18 +160,18 @@ vitest.config.mts
 |---------------|------------------|---------------------------------------------------|
 | `/`           | DashboardScreen  | Lecture seule, données en dur                     |
 | `/time`       | TimeScreen       | Chrono = faux (état bool, temps affiché en dur)    |
-| `/forecast`   | ForecastScreen   | Slider OK, taux net `.754` en dur (interdit Phase 4+) |
 | `/styleguide` | StyleGuideScreen | Démo de design system, pas un écran produit         |
 
-`settings`, `clients`, `invoices` et `treasury` ont été retirés de ce
-routeur mock (Phases 4-7) : ce sont de vraies routes, prioritaires sur
+`settings`, `clients`, `invoices`, `treasury` et `forecast` ont été retirés
+de ce routeur mock (Phases 4-8) : ce sont de vraies routes, prioritaires sur
 `app/[...slug]/page.tsx`. `SettingsScreen`/`ClientsScreen`/`InvoicesScreen`/
-`TreasuryScreen` (l'ancien mock) restent définis dans `finance-screens.tsx`
-mais ne sont plus importés nulle part (morts, à retirer avec le reste du
-mock au fil des prochaines phases — même précédent que `SettingsScreen`
-depuis la Phase 4, jamais nettoyé, laissé pour ne pas complexifier ce diff).
+`TreasuryScreen`/`ForecastScreen` (l'ancien mock) restent définis dans
+`finance-screens.tsx` mais ne sont plus importés nulle part (morts, à
+retirer avec le reste du mock au fil des prochaines phases — même précédent
+que `SettingsScreen` depuis la Phase 4, jamais nettoyé, laissé pour ne pas
+complexifier ce diff).
 
-### Routes métier (Phases 5-7)
+### Routes métier (Phases 5-8)
 
 | Route | Fonction |
 |---|---|
@@ -185,8 +185,10 @@ depuis la Phase 4, jamais nettoyé, laissé pour ne pas complexifier ce diff).
 | `/invoices/[id]/pdf` | PDF de la facture, protégé par session |
 | `/invoices/export?format=csv\|fec` | Export comptable |
 | `/public/invoices/[token]`, `/public/invoices/[token]/pdf` | Consultation publique, sans session |
-| `/treasury` | Comptes bancaires, transactions, catégorisation, rapprochement facture↔transaction (Phase 7) — filtres persistés dans l'URL (`?q=&account=&category=`, nuqs) |
+| `/treasury` | Comptes bancaires, transactions, catégorisation, rapprochement facture↔transaction (Phase 7) — filtres persistés dans l'URL (`?q=&account=&category=`, nuqs) — et depuis la Phase 8, cotisations/impôts estimés, échéances, déclarations de TVA sur la même page (même item de nav que la Phase 7, « Trésorerie & charges ») |
 | `/api/files/[id]` | Seul point d'accès aux fichiers uploadés (justificatifs), authentifié + scopé RLS, jamais d'URL publique |
+| `/vat/export` | Export CSV des déclarations de TVA préparées |
+| `/forecast` | Objectif de CA, pipeline pondéré, projection de trésorerie à 3/6 mois, simulateur de revenu net comparatif (Phase 8) |
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -580,6 +582,78 @@ relationnel (`tx.query.*.findMany({ with: ... })`) les résolve.
   (compte de test supprimé de la branche `production`, lignes `verify-treasury-%`
   supprimées de la branche `test`).
 
+## Charges, échéances, TVA, prévisionnel (Phase 8)
+
+Deux colonnes nullables ajoutées (migration 0010, aucune contrainte NOT NULL,
+absentes par défaut comme tout paramètre business non fiscal) :
+`quotes.win_probability_basis_points` (pondération du pipeline) et
+`user_preferences.annual_revenue_goal_cents` (objectif de CA). Le reste
+réutilise le schéma déjà posé en Phase 1 (`deadlines`, `vat_periods`) et
+l'infrastructure fiscale de la Phase 4 (`getFiscalParams`,
+`MissingParamBanner`, `lib/fiscal/param-definitions.ts`).
+
+- **Calculs, dans `lib/fiscal/`, purs et testés** (`compute-charges.ts`,
+  `forecast.ts`) — jamais appelés tant que `getFiscalParams` renvoie
+  `missing_params` :
+  - `computeMicroCharges` : cotisations + formation pro + versement
+    libératoire (un taux à 0 signifie simplement l'option non exercée, pas
+    un cas à traiter à part) sur le CA **encaissé**, jamais facturé.
+  - `computeCompanyCharges` (EURL/SASU) : IS par tranches (taux réduit puis
+    normal), puis cotisations dirigeant sur le résultat net. **Simplification
+    assumée et documentée dans le code** : bénéfice imposable = CA fourni
+    (aucune charge déductible modélisée dans l'app), 100 % du résultat net
+    supposé versé en rémunération — un comparatif d'ordre de grandeur entre
+    statuts, pas une liasse fiscale ni un bulletin de paie.
+  - `computeThresholdGauge` : jauge générique (plafond micro, franchise TVA),
+    réutilisée pour les deux seuils.
+  - `computeWeightedPipeline` : un devis sans probabilité saisie compte pour
+    100 % — jamais de probabilité inventée à sa place.
+  - `projectCashflow` : solde actuel + encours dont l'échéance tombe dans la
+    fenêtre - charges estimées dans la même fenêtre ; une facture sans
+    échéance ou une charge sans montant estimé est ignorée, jamais devinée.
+- **CA encaissé et TVA collectée** (`lib/fiscal/queries.ts`,
+  `lib/vat/queries.ts`) : calculés depuis `invoice_payments`/`invoices`
+  directement en base (sommes signées, un avoir soustrait), jamais saisis à
+  la main — pour qu'ils ne puissent jamais diverger des documents réels.
+- **TVA déductible** : reste saisie manuellement lors de la préparation
+  d'une déclaration (`prepareVatPeriodAction`). L'application ne capture
+  aucun taux de TVA sur les dépenses (les transactions de trésorerie,
+  Phase 7, ont une catégorie mais pas de ventilation TVA) : il n'y a donc
+  rien d'où la déduire automatiquement sans l'inventer. Une déclaration
+  `filed` devient immuable (édition et suppression refusées).
+- **Régime de TVA "à bascule datée"** : déjà couvert nativement depuis la
+  Phase 4, pas de nouveau mécanisme — `vat_regime` est une colonne de
+  `status_periods`, donc ouvrir une nouvelle période avec le même statut mais
+  un régime différent (formulaire déjà existant dans `/settings`) EST le
+  changement de régime daté demandé par PROMPT.md.
+- **Échéances** : CRUD + rappel email (`lib/deadlines/`). Le rappel reste
+  déclenché manuellement (bouton) faute de tâche planifiée — même choix que
+  les relances de factures en Phase 6, le vrai cron arrive en Phase 10.
+- **Simulateur de revenu net** : `NetIncomeSimulator` calcule côté client à
+  chaque déplacement du slider (fonctions pures importées telles quelles,
+  aucun aller-retour serveur) — mais les **paramètres fiscaux** (taux) sont
+  résolus côté serveur par utilisateur/année/statut avant l'hydratation :
+  jamais un taux du navigateur, seule la variable CA l'est. Un statut sans
+  paramètres complets affiche son propre `MissingParamBanner` dans sa
+  colonne, sans bloquer les deux autres.
+- **Pipeline pondéré** : `setQuoteWinProbabilityAction` ajouté à
+  `lib/quotes/actions.ts` (pas un nouveau module) — c'est une mutation du
+  champ `quotes.win_probability_basis_points`, à sa place naturelle à côté
+  des autres actions sur les devis.
+- **IA de navigation** : `/treasury` reste l'unique destination "Trésorerie
+  & charges" du menu (comptes, transactions, catégorisation, rapprochement
+  DEPUIS la Phase 7 ; cotisations, échéances, TVA DEPUIS la Phase 8) —
+  reflète le mock d'origine qui combinait déjà tout ça sur un seul écran.
+  `/forecast` reste une destination séparée, cohérent avec le nav existant.
+- **Vérification** : 14 nouveaux tests Vitest purs (`compute-charges.test.ts`,
+  `forecast.test.ts`, données entièrement fictives, jamais un taux réel) +
+  script ad hoc contre la branche `test` (supprimé après coup) : résolution
+  `missing_params` → `ok` une fois les paramètres saisis, CA encaissé
+  correctement filtré par fenêtre de dates, TVA collectée nette d'un avoir,
+  pipeline pondéré, isolation RLS. `pnpm typecheck && pnpm lint && pnpm test
+  && pnpm build` verts. `/treasury` et `/forecast` vérifiés par un vrai
+  signup + login via curl contre le serveur de dev, nettoyé après coup.
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -738,6 +812,18 @@ relationnel (`tx.query.*.findMany({ with: ... })`) les résolve.
   store Blob (token absent en dev, comme Resend) — implémenté au plus près de
   la doc du SDK installé (`@vercel/blob@2.8.0`, fonctions `get`/`put`/`del` à
   accès `'private'`), à vérifier au premier déploiement Vercel réel.
+- **Phase 8** — Charges, échéances, TVA, prévisionnel, simulateur (voir
+  section dédiée ci-dessus). Seule migration additive depuis la Phase 1
+  (0010 : deux colonnes nullables, `quotes.win_probability_basis_points` et
+  `user_preferences.annual_revenue_goal_cents`), appliquée aux deux branches
+  Neon. Piège évité pendant l'application de la migration sur la branche
+  `test` : `drizzle.config.ts` lit `DATABASE_URL_UNPOOLED`, pas
+  `DATABASE_URL` — un premier essai avec la mauvaise variable a réappliqué
+  (sans effet, idempotent) la migration sur `production` au lieu de `test`,
+  détecté immédiatement en vérifiant les colonnes sur chaque branche avant de
+  continuer. Simulateur de revenu net volontairement simplifié pour EURL/SASU
+  (bénéfice = CA, 100 % versé en rémunération) — documenté comme un
+  comparatif d'ordre de grandeur, pas un calcul certifié.
 
 ## Commandes utiles
 

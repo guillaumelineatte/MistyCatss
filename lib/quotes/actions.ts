@@ -130,6 +130,26 @@ export async function deleteQuoteAction(id: string): Promise<ActionResult> {
   redirect('/invoices')
 }
 
+/**
+ * Pondération du pipeline prévisionnel (Phase 8) : chance de signature
+ * estimée par l'utilisateur pour ce devis, jamais déduite automatiquement.
+ * `null` (champ vidé) restaure le comportement "pondéré à 100 %".
+ */
+export async function setQuoteWinProbabilityAction(id: string, winProbabilityPercent: number | null): Promise<ActionResult> {
+  if (winProbabilityPercent != null && (winProbabilityPercent < 0 || winProbabilityPercent > 100)) {
+    return { error: 'La probabilité doit être comprise entre 0 et 100.' }
+  }
+  await withCurrentUserScope((tx) =>
+    tx
+      .update(quotes)
+      .set({ winProbabilityBasisPoints: winProbabilityPercent != null ? Math.round(winProbabilityPercent * 100) : null })
+      .where(eq(quotes.id, id)),
+  )
+  revalidatePath('/forecast')
+  revalidatePath('/invoices')
+  return { success: true }
+}
+
 export async function duplicateQuoteAction(id: string): Promise<{ error?: string; newId?: string }> {
   const session = await requireSession()
   const newId = await withCurrentUserScope(async (tx) => {

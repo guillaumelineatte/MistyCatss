@@ -25,6 +25,11 @@ export const quotes = pgTable('quotes', {
   publicToken: text('public_token').notNull().$defaultFn(() => crypto.randomUUID()),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
   acceptedIp: text('accepted_ip'),
+  // Pondération du pipeline prévisionnel (Phase 8) : chance de signature
+  // estimée par l'utilisateur, jamais déduite automatiquement. Absente par
+  // défaut — un devis sans estimation compte pour 100 % dans le pipeline non
+  // pondéré plutôt que de se voir attribuer une probabilité inventée.
+  winProbabilityBasisPoints: integer('win_probability_basis_points'),
   totalHtCents: integer('total_ht_cents').default(0).notNull(),
   totalVatCents: integer('total_vat_cents').default(0).notNull(),
   totalTtcCents: integer('total_ttc_cents').default(0).notNull(),
