@@ -6,8 +6,9 @@ __v0_jsx-dev-runtime.ts
 .v0-trash/
 .vercel/
 
-# Environment variables
-.env*.local
+# Environment variables (jamais .env.example, qui documente les clés attendues)
+.env*
+!.env.example
 
 # Emails écrits en mode dégradé (RESEND_API_KEY absente) — contiennent des
 # liens/tokens de vérification, jamais commités.
