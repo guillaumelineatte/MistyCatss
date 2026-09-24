@@ -26,6 +26,15 @@ export async function saveFile(buffer: Buffer, key: string): Promise<StoredFile>
     return { storedPath: blob.pathname }
   }
 
+  // Le repli filesystem local n'a de sens qu'en dev : une fonction Vercel a
+  // un filesystem en lecture seule (sauf /tmp, non persistant entre
+  // invocations) — mieux vaut une erreur claire à l'appelant (déjà catché
+  // par les actions qui appellent saveFile) qu'un crash EROFS opaque ou un
+  // fichier "enregistré" qui redevient introuvable à la prochaine requête.
+  if (process.env.VERCEL) {
+    throw new Error("Stockage de fichiers non configuré sur cet environnement (BLOB_READ_WRITE_TOKEN manquant).")
+  }
+
   const filePath = path.join(UPLOADS_DIR, key)
   await mkdir(path.dirname(filePath), { recursive: true })
   await writeFile(filePath, buffer)

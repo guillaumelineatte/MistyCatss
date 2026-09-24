@@ -170,6 +170,14 @@ async function readReceiptFromFormData(formData: FormData): Promise<
   return { ok: true, file: { buffer, name: receipt.name, mimeType: validation.mimeType, size: receipt.size } }
 }
 
+async function trySaveFile(buffer: Buffer, key: string): Promise<{ ok: true; storedPath: string } | { ok: false; error: string }> {
+  try {
+    return { ok: true, storedPath: (await saveFile(buffer, key)).storedPath }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Échec de l’enregistrement du justificatif.' }
+  }
+}
+
 export async function createTransactionAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const parsed = transactionSchema.safeParse(Object.fromEntries(formData.entries()))
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Formulaire invalide.' }
@@ -183,7 +191,9 @@ export async function createTransactionAction(_prev: ActionResult, formData: For
   let storedPath: string | null = null
   if (receiptResult.file) {
     const key = generateStorageKey(session.user.id, receiptResult.file.name)
-    storedPath = (await saveFile(receiptResult.file.buffer, key)).storedPath
+    const saved = await trySaveFile(receiptResult.file.buffer, key)
+    if (!saved.ok) return { error: saved.error }
+    storedPath = saved.storedPath
   }
 
   await withCurrentUserScope(async (tx) => {
@@ -239,7 +249,9 @@ export async function updateTransactionAction(_prev: ActionResult, formData: For
   let newStoredPath: string | null = null
   if (receiptResult.file) {
     const key = generateStorageKey(session.user.id, receiptResult.file.name)
-    newStoredPath = (await saveFile(receiptResult.file.buffer, key)).storedPath
+    const saved = await trySaveFile(receiptResult.file.buffer, key)
+    if (!saved.ok) return { error: saved.error }
+    newStoredPath = saved.storedPath
   }
 
   let oldReceiptStoredPath: string | null = null
