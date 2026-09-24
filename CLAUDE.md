@@ -1093,23 +1093,78 @@ pnpm db:seed         # tsx db/seed.ts — seed de dev idempotent (utilisateur se
 
 ## Variables d'environnement
 
-Voir `.env.example` pour la liste complète commentée. Résumé par environnement
-Vercel — à documenter précisément en Phase 1 quand les valeurs réelles seront
-connues :
+Voir `.env.example` pour la liste complète commentée.
 
 | Variable | Prod | Preview | Dev | Exposée client ? |
 |---|---|---|---|---|
-| `DATABASE_URL` | ✅ | ✅ (branche Neon dédiée) | ✅ | ❌ |
+| `DATABASE_URL` | ✅ (branche `production`) | ✅ (branche `test`) | ✅ | ❌ |
 | `DATABASE_URL_UNPOOLED` | ✅ | ✅ | ✅ | ❌ |
 | `DATABASE_SCOPED_URL` | ✅ | ✅ | ✅ | ❌ |
-| `BETTER_AUTH_SECRET` | ✅ | ✅ | ✅ | ❌ |
-| `BETTER_AUTH_URL` | ✅ | ✅ | ✅ | ❌ |
-| `NEXT_PUBLIC_APP_URL` | ✅ | ✅ | ✅ | ✅ (public par design) |
-| `RESEND_API_KEY` | ✅ | optionnel | optionnel (dégradé) | ❌ |
-| `RESEND_FROM_EMAIL` | ✅ | optionnel | optionnel | ❌ |
-| `BLOB_READ_WRITE_TOKEN` | ✅ | optionnel | non utilisé (fs local) | ❌ |
-| `CRON_SECRET` | ✅ | ✅ | optionnel | ❌ |
+| `BETTER_AUTH_SECRET` | ✅ (généré, propre à l'environnement) | ✅ (généré, différent de Prod) | ✅ | ❌ |
+| `BETTER_AUTH_URL` | ✅ (`https://argentbrut.vercel.app`) | ❌ volontairement absente — repli automatique sur `VERCEL_URL` (`lib/env.ts`), pour que chaque preview pointe vers elle-même | ✅ | ❌ |
+| `NEXT_PUBLIC_APP_URL` | ✅ | ❌ idem, repli sur `NEXT_PUBLIC_VERCEL_URL` côté client | ✅ | ✅ (public par design) |
+| `RESEND_API_KEY` | ❌ absente pour l'instant — mode dégradé, voir § Déploiement | optionnel | optionnel (dégradé) | ❌ |
+| `RESEND_FROM_EMAIL` | ❌ idem | optionnel | optionnel | ❌ |
+| `BLOB_READ_WRITE_TOKEN` | ❌ absente pour l'instant — upload de justificatifs échoue avec un message clair, voir § Déploiement | optionnel | non utilisé (fs local) | ❌ |
+| `CRON_SECRET` | ✅ (généré) | ✅ (généré, différent de Prod — Vercel Cron ne s'exécute de toute façon qu'en Production) | optionnel | ❌ |
 | `TEST_DATABASE_URL(_UNPOOLED\|_SCOPED)` | ❌ | ❌ | ✅ (branche `test` dédiée) | ❌ |
+
+## Déploiement (Phase 10, fait à la demande explicite de l'utilisateur)
+
+Projet Vercel déjà créé par l'utilisateur (`argentbrut`, org
+`lineatteg-gmailcoms-projects`) avant cette étape — seule la config et le
+déploiement ont été faits ici, jamais la création du projet (cf. PROMPT.md).
+
+- **Production** — https://argentbrut.vercel.app — déployée depuis `main`
+  (push direct), branche Neon `production`. Vérifiée de bout en bout :
+  inscription/connexion réelles, tableau de bord avec vraies données.
+- **Test** — https://argentbrut-test.vercel.app — alias posé sur un
+  déploiement fait via `vercel deploy` (CLI, pas de build git), branche Neon
+  `test` (jamais production). Vérifiée : inscription réelle, écrit bien sur
+  la branche `test` et pas `production` (confirmé par requête directe).
+- **Protection SSO Vercel désactivée** (`vercel project protection disable
+  argentbrut --sso`) : elle était activée par défaut sur les URLs
+  `*.vercel.app` (`all_except_custom_domains`), donc la preview répondait
+  par une redirection vers `vercel.com/sso-api` — pas conforme à la demande
+  "utilisable pour tous". La Production restait déjà accessible sans SSO
+  (son alias semble traité à part), seule la Preview en avait besoin.
+- **Secrets** : `BETTER_AUTH_SECRET` et `CRON_SECRET` générés spécifiquement
+  pour chaque environnement (`openssl rand -base64 32`), jamais réutilisés
+  entre Prod/Preview/Dev (cohérent avec la décision Phase 2).
+- **URLs dynamiques** (`lib/env.ts`, Phase 10) : `BETTER_AUTH_URL`/
+  `NEXT_PUBLIC_APP_URL` volontairement absentes en Preview pour que le repli
+  sur `VERCEL_URL` s'applique — sans ça, chaque nouveau déploiement de
+  preview aurait une URL différente mais des liens (emails, callbacks auth)
+  qui pointeraient vers l'ancienne.
+- **⛔ Limite connue, action utilisateur possible** : `RESEND_API_KEY`
+  absente en Production → les emails (vérification, reset, envoi de
+  facture/devis...) restent en mode dégradé (loggés dans les logs de
+  fonction Vercel, jamais reçus par un vrai destinataire) même en prod —
+  un compte tiers ne peut donc pas s'inscrire de façon autonome (il ne
+  recevra jamais son lien de vérification). Pour un déploiement "utilisable
+  par n'importe qui" à 100 %, il faut une vraie clé Resend :
+  `echo -n "re_..." | vercel env add RESEND_API_KEY production` puis
+  redéployer. Même chose pour `BLOB_READ_WRITE_TOKEN` (upload de
+  justificatifs/logo, aujourd'hui absent en Prod comme en Preview) — les
+  deux corrigés en Phase 10 pour échouer proprement (message d'erreur clair)
+  plutôt que planter (voir § Trésorerie/Justificatifs et § Sécurité).
+- **⚠️ Anomalie non résolue** : pousser une nouvelle branche git (`test`,
+  créée et poussée sur `origin/test`) n'a déclenché aucun build Vercel,
+  contrairement à `main` (qui redéploie bien la Production automatiquement à
+  chaque push). Le déploiement de test a donc été fait manuellement via
+  `vercel deploy` (upload direct du répertoire local), pas via
+  intégration git. À vérifier côté utilisateur dans Vercel → Project
+  Settings → Git (réglage "Preview Deployments" potentiellement restreint à
+  certaines branches, ou App GitHub pas autorisée sur les branches non
+  védettes) — jamais eu accès au dashboard pour diagnostiquer plus loin.
+  En attendant, tout nouveau déploiement de test doit repasser par
+  `vercel deploy` (sans `--prod`) depuis ce répertoire, puis reposer l'alias
+  si besoin : `vercel alias set <url-générée> argentbrut-test.vercel.app`.
+- **Upload CLI direct instable dans cet environnement** : `vercel deploy`
+  a échoué 3 fois de suite avec `fetch failed` en cours d'upload avant de
+  réussir au 4ᵉ essai — sans diagnostic plus poussé (déconnexion réseau
+  transitoire probable dans le sandbox d'exécution, pas un problème du
+  projet). Prévoir de réessayer en cas d'échec similaire.
 
 ## Design (figé, ne pas modifier visuellement)
 
