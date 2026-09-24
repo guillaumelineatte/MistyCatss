@@ -68,7 +68,7 @@ CLAUDE.md § Structure actuelle).
 | Paiement (total/partiel) | ✅ | Solde restant dû recalculé, statut mis à jour |
 | Relance manuelle | ✅ | |
 | Proposition automatique des factures à relancer | 🟡 | Bascule "en retard" à la lecture (lazy), pas de rappel programmé — cron réel Phase 10 |
-| Facturation récurrente | ❌ | Schéma prêt (`recurring_invoice_templates`), aucune interface ni génération programmée — non couvert par un phase explicite du plan, à faire en Phase 10 avec les tâches planifiées |
+| Facturation récurrente (`/invoices/recurring`) | ✅ | Modèles (CRUD, périodicité, jour du mois), génération programmée en BROUILLON uniquement — jamais d'émission automatique (Phase 10) |
 | PDF facture/devis | ✅ | |
 | Journal d'audit (création, émission, envoi, paiement, avoir) | ✅ | Inaltérable, vérifié contre la connexion admin |
 
@@ -137,17 +137,46 @@ CLAUDE.md § Structure actuelle).
 | Filtres/tri persistés dans l'URL | 🟡 | Fait sur `/treasury` (transactions) et `/time` (semaine) et le tableau de bord (mois) ; la recherche `/clients` reste en état local (Phase 5, non rétrofitée pour limiter le diff) |
 | Toasts avec annulation | 🟡 | Couvre les suppressions réversibles et bon marché à annuler (échéance, catégorie, règle, entrée de temps) ; les suppressions aux effets de bord complexes (transaction rapprochée) gardent une confirmation native simple, sans annulation automatique — annuler proprement un rapprochement en cascade n'est pas implémenté |
 | Confirmations fortes (saisie du nom) | ✅ | Suppression de client, suppression de compte, annulation de facture émise — réservées aux actions à conséquence réelle et difficile à défaire |
-| En-têtes de sécurité / CSP | ❓ | À vérifier en Phase 10 (`next.config`) |
-| Tâches planifiées (rappels, expiration, factures récurrentes) | ❌ | Reportées à la Phase 10 (Vercel Cron), en attendant : bascules "à la lecture" partout où c'est listé ci-dessus comme 🟡 |
+| En-têtes de sécurité / CSP (`next.config.mjs`) | ✅ | CSP sans nonce (l'app utilise des styles inline pour les jauges), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy (Phase 10) |
+| Tâches planifiées (rappels, expiration, factures récurrentes) | ✅ | 3 routes Vercel Cron protégées par `CRON_SECRET`, idempotentes (Phase 10) — remplacent les bascules "à la lecture" pour l'expiration/le retard (qui restent en filet de sécurité en complément) |
 
 ---
+
+## Corrections trouvées en auditant (Phase 10)
+
+Deux bugs silencieux, présents depuis la Phase 0, découverts en vérifiant
+visuellement l'application (pas détectables par `curl`) :
+
+- **Les polices Anton/Space Grotesk/JetBrains Mono ne chargeaient jamais dans
+  le navigateur** : `app/globals.css` pointait `@font-face src` directement
+  vers l'endpoint CSS `fonts.googleapis.com/css2?...` (qui renvoie une feuille
+  de style, pas un binaire de police) au lieu d'un vrai fichier de police —
+  repli silencieux sur la police système partout dans l'app depuis le début
+  du projet. Corrigé en servant les `.ttf` déjà vendorisés en Phase 5 (pour
+  l'embarquement PDF) depuis `public/fonts/`.
+- **Le middleware bloquait le chargement des polices sur toute page non
+  authentifiée** (login, signup, consultation publique) : le matcher de
+  `proxy.ts` n'excluait pas les extensions de police (`.ttf`/`.woff`/...),
+  donc une requête de police sans session redirigeait vers `/login` — une
+  redirection HTML n'est pas un fichier de police valide. Corrigé en ajoutant
+  ces extensions à la liste déjà exclue (images, favicon).
+- **Le menu latéral perdait ses derniers éléments (Déconnexion) sur les
+  écrans courts** : `<aside>` n'avait pas de `overflow-y-auto`, donc son
+  contenu (logo, statut, nav, déconnexion) dépassait silencieusement la
+  hauteur de viewport sans scroll possible — trouvé en écrivant les tests
+  Playwright (`e2e/auth.spec.ts`), qui échouaient de façon reproductible sur
+  le clic "Déconnexion".
+
+Aucun de ces trois bugs n'était visible dans les vérifications précédentes
+(curl, scripts ad hoc contre la base) puisqu'aucune ne rend visuellement une
+page ni ne simule un vrai parcours de clic — un argument de plus pour la
+suite Playwright ajoutée cette phase.
 
 ## Résumé
 
 Sur l'ensemble du catalogue ci-dessus : la quasi-totalité des éléments interactifs
 est fonctionnelle avec des données réelles. Les limites assumées (🟡) sont
 documentées avec leur raison ; aucune n'est un bouton mort silencieux. Les seuls
-éléments non implémentés (❌) sont soit explicitement réservés à la Phase 10
-(tâches planifiées), soit hors du périmètre couvert par un phase précis du plan
-(modèles d'email personnalisables, import initial, facturation récurrente) et
+éléments non implémentés (❌) restants sont hors du périmètre couvert par une
+phase précise du plan (modèles d'email personnalisables, import initial) et
 n'ont jamais été présentés comme actifs dans l'interface.

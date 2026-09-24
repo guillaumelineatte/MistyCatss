@@ -59,12 +59,14 @@ export function QuoteLineEditor({ initialLines }: { initialLines?: LineDraft[] }
       {lines.map((line, index) => (
         <div key={index} className="grid gap-2 border-2 border-[var(--ink)] p-3 md:grid-cols-[3fr_1fr_1fr_1fr_1fr_auto] md:items-center md:border-0 md:border-b md:border-[var(--ink)]/30 md:p-0 md:pb-3">
           <input
+            aria-label="Description de la ligne"
             value={line.description}
             onChange={(e) => update(index, { description: e.target.value })}
             placeholder="Description de la prestation"
             className={inputClassName}
           />
           <input
+            aria-label="Quantité"
             type="number"
             step="0.5"
             min="0"
@@ -73,6 +75,7 @@ export function QuoteLineEditor({ initialLines }: { initialLines?: LineDraft[] }
             className={inputClassName}
           />
           <input
+            aria-label="Prix unitaire HT en euros"
             type="number"
             step="0.01"
             value={line.unitPriceCents / 100}
@@ -80,6 +83,7 @@ export function QuoteLineEditor({ initialLines }: { initialLines?: LineDraft[] }
             className={inputClassName}
           />
           <input
+            aria-label="Remise en pourcentage"
             type="number"
             step="0.1"
             value={line.discountPercentBasisPoints != null ? line.discountPercentBasisPoints / 100 : ''}
@@ -87,6 +91,7 @@ export function QuoteLineEditor({ initialLines }: { initialLines?: LineDraft[] }
             className={inputClassName}
           />
           <input
+            aria-label="Taux de TVA en pourcentage"
             type="number"
             step="0.1"
             value={line.vatRateBasisPoints / 100}

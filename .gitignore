@@ -22,6 +22,12 @@ node_modules
 .next/
 .DS_Store
 
+# Playwright (e2e, Phase 10)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # TypeScript
 next-env.d.ts
 *.tsbuildinfo

@@ -2,25 +2,46 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
+/*
+ * Servies en self-hosted depuis public/fonts/ (mêmes .ttf que
+ * assets/fonts/, vendorisés en Phase 5 pour l'embarquement PDF) : les
+ * anciennes déclarations pointaient un src vers l'endpoint CSS
+ * fonts.googleapis.com/css2?... directement comme si c'était un fichier de
+ * police — ça renvoie une feuille de style, pas un binaire de police, donc
+ * ces trois polices n'ont jamais réellement chargé dans le navigateur depuis
+ * la Phase 0 (repli silencieux sur la police système). Corrigé ici : c'est
+ * une restauration du design validé, pas une modification visuelle.
+ */
 @font-face {
   font-family: 'Anton';
-  src: url('https://fonts.googleapis.com/css2?family=Anton:wght@400&display=swap');
+  src: url('/fonts/Anton-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
   font-family: 'Space Grotesk';
-  src: url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap');
+  src: url('/fonts/SpaceGrotesk-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('/fonts/SpaceGrotesk-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
 }
 
 @font-face {
   font-family: 'JetBrains Mono';
-  src: url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap');
+  src: url('/fonts/JetBrainsMono-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
+  font-display: swap;
 }
 
 /* Riso editorial palette: burnt orange, olive green, warm paper */

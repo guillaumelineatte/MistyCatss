@@ -82,6 +82,9 @@ export function InvoicesOverviewScreen({ quotes, invoices }: { quotes: Quote[]; 
                 <Plus className="size-4" /> Nouvelle facture
               </ButtonPrimary>
             </Link>
+            <Link href="/invoices/recurring">
+              <ButtonSecondary>Facturation récurrente</ButtonSecondary>
+            </Link>
             {/* Téléchargements de fichier, pas des navigations de page : <a> natifs volontaires. */}
             {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a href="/invoices/export?format=csv">

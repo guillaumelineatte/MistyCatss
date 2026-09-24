@@ -171,7 +171,7 @@ retirer avec le reste du mock au fil des prochaines phases — même précédent
 que `SettingsScreen` depuis la Phase 4, jamais nettoyé, laissé pour ne pas
 complexifier ce diff).
 
-### Routes métier (Phases 5-9)
+### Routes métier (Phases 5-10)
 
 | Route | Fonction |
 |---|---|
@@ -191,6 +191,8 @@ complexifier ce diff).
 | `/forecast` | Objectif de CA, pipeline pondéré, projection de trésorerie à 3/6 mois, simulateur de revenu net comparatif (Phase 8) |
 | `/time` | Grille hebdomadaire, projets, chrono, conversion temps→facture, TJM effectif, classement clients (Phase 9) |
 | `/` | Tableau de bord réel (Phase 9, jamais branché avant) : CA du mois sélectionné, graphique 12 mois, trésorerie à 3 mois, échéances à venir, factures en retard, dépendance client |
+| `/invoices/recurring` | Modèles de facturation récurrente (CRUD, génération en brouillon, Phase 10) |
+| `/api/cron/generate-recurring-invoices`, `/api/cron/expire-quotes`, `/api/cron/deadline-reminders` | Tâches planifiées Vercel Cron, protégées par `CRON_SECRET` (Phase 10) |
 
 ### Routes d'authentification (Phase 2, hors du routeur mock ci-dessus)
 
@@ -780,6 +782,95 @@ ici pour ne pas le réintroduire.
   comptes de test et données de démonstration supprimés après coup (branches
   `production` et `test`).
 
+## Tâches planifiées, tests, accessibilité, performances, README (Phase 10)
+
+Dernière phase du plan. Aucune migration de schéma (le schéma
+`recurring_invoice_templates`/`_lines` est posé depuis la Phase 1).
+
+- **Facturation récurrente** (`lib/recurring/`, `/invoices/recurring`) —
+  seule vraie fonctionnalité manquante restée à construire entièrement cette
+  phase (CRUD + génération, rien n'existait avant). `generateDueRecurringInvoices`
+  (appelée par la tâche planifiée) génère toujours une facture **brouillon**,
+  jamais émise automatiquement (PROMPT.md). Le taux de TVA de chaque ligne
+  vient du modèle tel que l'utilisateur l'a configuré à sa création — jamais
+  un défaut recalculé à la génération.
+- **Tâches planifiées** (`app/api/cron/*`, `vercel.json`, `lib/cron/verify.ts`) :
+  trois routes, toutes protégées par `Authorization: Bearer $CRON_SECRET`
+  (convention Vercel Cron), toutes idempotentes :
+  - `generate-recurring-invoices` — voir ci-dessus.
+  - `expire-quotes` — bascule programmée des devis envoyés périmés
+    (`expired`) et des factures émises échues (`overdue`), jusqu'ici faite
+    uniquement "à la lecture" (Phases 5-6) ; cette dernière reste en place en
+    complément (aucune des deux ne fait de mal à être redondante).
+  - `deadline-reminders` — rappel automatique (une fois, `reminder_sent_at`
+    comme garde) pour toute échéance dans les 7 jours. Différence assumée
+    avec les relances de factures (restées **manuelles**, PROMPT.md est
+    explicite là-dessus) : rien n'interdit d'automatiser les rappels
+    d'échéances fiscales.
+  - `vercel.json` choisi plutôt que `vercel.ts` (recommandé plus récemment
+    par la plateforme) : PROMPT.md demande explicitement `vercel.json`,
+    instruction du cahier des charges prioritaire sur une recommandation
+    générique de plateforme.
+- **Trois bugs silencieux trouvés en auditant, corrigés** (détail dans
+  `AUDIT.md` § Corrections trouvées en auditant) : polices web qui ne
+  chargeaient jamais (mauvais `@font-face src`, corrigé en servant les `.ttf`
+  déjà vendorisés en Phase 5 depuis `public/fonts/`), ce même chargement
+  bloqué par le middleware sur toute page non authentifiée (matcher
+  `proxy.ts` sans exclusion des extensions de police), et le menu latéral
+  qui perdait ses derniers éléments sans scroll sur petit écran. Aucun des
+  trois n'était détectable par les vérifications curl/script ad hoc des
+  phases précédentes — trouvés uniquement en écrivant les tests Playwright
+  et en regardant un vrai rendu de page.
+- **CSP et en-têtes de sécurité** (`next.config.mjs`) : CSP **sans nonce**
+  (voir `node_modules/next/dist/docs/.../content-security-policy.md`,
+  section "Without Nonces") — un CSP à base de nonce exigerait un rendu
+  dynamique partout (plus de génération statique) et l'app utilise beaucoup
+  de styles inline (`style={{ width }}` pour toutes les jauges/barres de
+  progression), donc `'unsafe-inline'` reste nécessaire de toute façon pour
+  `style-src`. Complété par HSTS, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`.
+- **Tests Playwright** (`e2e/`, `pnpm test:e2e`) : tournent contre un vrai
+  `next dev` sur le port 3100, **jamais** la branche Neon de dev/prod —
+  `e2e/test-server.mjs` remappe `TEST_DATABASE_*` vers les variables que
+  l'app lit normalement avant de démarrer le serveur (même logique que
+  `DATABASE_URL_UNPOOLED` pour `drizzle-kit migrate` en Phase 8, mais
+  appliquée à un process enfant plutôt qu'à une commande ponctuelle), et
+  remappe aussi `BETTER_AUTH_URL`/`NEXT_PUBLIC_APP_URL` vers le port 3100
+  (sinon les liens dans les emails de vérification pointent vers le port
+  3000 du serveur de dev normal). Comptes créés par la suite (préfixe
+  `e2e-`) nettoyés automatiquement en fin d'exécution
+  (`e2e/global-teardown.ts`, même détour de désactivation de triggers que
+  `db/seed.ts` pour les comptes ayant un historique de facturation).
+  `vitest.config.mts` exclut désormais `e2e/**` : sans ça, le `test()`
+  global de Vitest entre en conflit avec celui importé de
+  `@playwright/test` dans ces fichiers.
+- **Accessibilité** : passe ciblée plutôt qu'exhaustive — `aria-label` ajouté
+  aux champs de saisie denses sans `<label>` visible (éditeur de lignes
+  devis/factures, formulaire d'échéance, grille hebdomadaire de temps) et au
+  menu latéral (`overflow-y-auto`, voir bugs trouvés ci-dessus). Vérifié :
+  aucun bouton icône-seul sans `aria-label` ailleurs dans l'app (recherché
+  systématiquement, tous les boutons trouvés ont soit du texte visible, soit
+  déjà un `aria-label`).
+- **Performances** : `font-display: swap` sur les polices auto-hébergées,
+  `images.unoptimized` déjà réglé depuis la Phase 0 (peu d'images dynamiques
+  dans l'app). Pas d'audit Lighthouse/bundle poussé cette phase — l'usage
+  réel est un utilisateur unique par compte, pas un trafic à haute charge ;
+  à reprendre si un besoin réel se présente plutôt que d'optimiser dans le
+  vide.
+- **README.md** : instructions d'installation autonomes (jusqu'ici seul
+  `CLAUDE.md`, orienté agent/décisions, en tenait lieu) — matrice de
+  variables abrégée avec renvoi vers `.env.example`/`CLAUDE.md` pour le
+  détail complet plutôt que dupliquer.
+- **Vérification** : script ad hoc contre la branche `test` (12 assertions :
+  génération récurrente idempotente, montants/TVA corrects, bascule
+  expiration/retard, sélection des rappels d'échéances dans la fenêtre de
+  7 jours, idempotence des rappels) + suite Playwright complète (5 parcours :
+  inscription/vérification/connexion, validation mot de passe côté
+  navigateur, déconnexion, création client, création facture brouillon avec
+  ligne) verte contre la branche `test`, nettoyage automatique confirmé.
+  `pnpm typecheck && pnpm lint && pnpm test && pnpm build` verts (73 tests
+  unitaires inchangés, `e2e/` exclu de Vitest).
+
 ## Journal des décisions
 
 - **Phase 0** — Projet Neon `argentbrut` déjà présent sur le compte connecté
@@ -967,6 +1058,20 @@ ici pour ne pas le réintroduire.
   onglet MCP (profil Chrome partagé) — onglet fermé sans interaction,
   vérification faite par script ad hoc + curl à la place (même prudence que
   la collision de cookies de la Phase 4).
+- **Phase 10** — Tâches planifiées, tests, accessibilité, performances,
+  README (voir section dédiée ci-dessus). Dernière phase du plan. Trois bugs
+  silencieux trouvés et corrigés en écrivant les tests Playwright et en
+  regardant un vrai rendu de page (polices jamais chargées depuis la
+  Phase 0, ce chargement bloqué par le middleware sur les pages non
+  authentifiées, menu latéral sans scroll sur petit écran) — voir détail
+  dans `AUDIT.md`. Cette fois, l'onglet MCP a servi (contrairement aux
+  Phases 4 et 9) : uniquement sur des pages publiques (`/login`, sans
+  session, sans compte impliqué), jamais en interagissant avec un
+  formulaire pré-rempli d'identifiants réels — juste des captures d'écran
+  en lecture seule pour confirmer visuellement le rendu des polices, ce que
+  ni curl ni un script ad hoc ne peuvent vérifier. `pnpm test:e2e` tourne
+  exclusivement contre la branche Neon `test` (jamais dev/prod) via un
+  serveur `next dev` dédié sur un port séparé.
 
 ## Commandes utiles
 
@@ -978,6 +1083,7 @@ pnpm typecheck       # tsc --noEmit
 pnpm lint            # eslint . (flat config, next lint est supprimé en v16)
 pnpm test            # vitest run
 pnpm test:watch      # vitest (watch)
+pnpm test:e2e        # playwright test — parcours critiques, contre la branche Neon "test" (port 3100)
 pnpm db:generate     # drizzle-kit generate — génère une migration depuis db/schema/
 pnpm db:migrate      # drizzle-kit migrate — applique les migrations en attente
 pnpm db:push         # drizzle-kit push — sync direct schéma->DB (dev only, hors migrations suivies)

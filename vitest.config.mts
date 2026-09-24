@@ -10,6 +10,10 @@ export default defineConfig({
     // Aucun test unitaire tant qu'il n'y a pas de logique métier (Phase 4+
     // pour lib/fiscal, Phase 3 pour les tests d'isolation multi-comptes).
     passWithNoTests: true,
+    // e2e/*.spec.ts sont des tests Playwright (pnpm test:e2e), pas Vitest —
+    // leur import de `test` depuis @playwright/test entre en conflit avec
+    // le global `test` de Vitest si ce dossier n'est pas exclu ici.
+    exclude: ['**/node_modules/**', '**/e2e/**'],
   },
   resolve: {
     alias: {

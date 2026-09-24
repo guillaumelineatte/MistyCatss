@@ -33,5 +33,11 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|.*\\.(?:png|svg|jpg|jpeg|ico|webmanifest)$).*)'],
+  // Bug trouvé en Phase 10 : les polices (public/fonts/*.ttf) n'étaient pas
+  // exclues du matcher, donc toute requête de police depuis une page NON
+  // authentifiée (login, signup, consultation publique...) était redirigée
+  // vers /login — une redirection HTML n'est pas un fichier de police valide,
+  // donc le navigateur abandonnait silencieusement le chargement de la
+  // police sur ces pages précises.
+  matcher: ['/((?!api|_next/static|_next/image|.*\\.(?:png|svg|jpg|jpeg|ico|webmanifest|ttf|woff|woff2|otf)$).*)'],
 }

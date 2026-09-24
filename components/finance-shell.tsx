@@ -99,7 +99,7 @@ export function FinanceShell({
         <Menu aria-hidden="true" />
       </button>
       <aside className={cn(
-        'fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-[var(--ink)] px-5 py-6 text-[var(--paper)] transition-transform duration-150 md:translate-x-0',
+        'fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-y-auto bg-[var(--ink)] px-5 py-6 text-[var(--paper)] transition-transform duration-150 md:translate-x-0',
         mobileOpen ? 'translate-x-0' : '-translate-x-full',
       )}>
         <div className="mb-10 flex items-start justify-between">

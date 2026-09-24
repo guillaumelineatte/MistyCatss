@@ -138,7 +138,7 @@ function AddEntryForm({ date, projects, onDone }: { date: string; projects: Proj
     <form action={onSubmit} className="flex flex-col gap-1 border-t border-dashed border-[var(--ink)]/40 pt-2">
       <input type="hidden" name="date" value={date} />
       {error && <p className="text-[var(--pink)]">{error}</p>}
-      <select name="projectId" required defaultValue="" className="h-8 border border-[var(--ink)] bg-[var(--paper)] text-[10px]">
+      <select aria-label="Projet" name="projectId" required defaultValue="" className="h-8 border border-[var(--ink)] bg-[var(--paper)] text-[10px]">
         <option value="" disabled>
           Projet
         </option>
@@ -148,8 +148,8 @@ function AddEntryForm({ date, projects, onDone }: { date: string; projects: Proj
           </option>
         ))}
       </select>
-      <input name="hours" type="number" step="0.25" min="0.25" placeholder="Heures" required className="h-8 border border-[var(--ink)] bg-[var(--paper)] px-1 text-[10px]" />
-      <input name="description" placeholder="Description" className="h-8 border border-[var(--ink)] bg-[var(--paper)] px-1 text-[10px]" />
+      <input aria-label="Heures" name="hours" type="number" step="0.25" min="0.25" placeholder="Heures" required className="h-8 border border-[var(--ink)] bg-[var(--paper)] px-1 text-[10px]" />
+      <input aria-label="Description" name="description" placeholder="Description" className="h-8 border border-[var(--ink)] bg-[var(--paper)] px-1 text-[10px]" />
       <label className="flex items-center gap-1">
         <input type="checkbox" name="billable" defaultChecked /> Facturable
       </label>

@@ -75,14 +75,14 @@ export function DeadlinesPanel({ deadlines }: { deadlines: Deadline[] }) {
 
       <form action={formAction} className="flex flex-wrap items-end gap-3">
         {state.error && <FormError message={state.error} />}
-        <select name="kind" required className={`${inputClassName} mt-0 w-auto`} defaultValue="urssaf">
+        <select aria-label="Type d'échéance" name="kind" required className={`${inputClassName} mt-0 w-auto`} defaultValue="urssaf">
           <option value="urssaf">URSSAF</option>
           <option value="tva">TVA</option>
           <option value="is">IS</option>
           <option value="cfe">CFE</option>
         </select>
-        <input name="dueDate" type="date" required className={`${inputClassName} mt-0 w-auto`} />
-        <input name="amountEstimate" type="number" step="0.01" placeholder="Montant estimé — €" className={`${inputClassName} mt-0 w-auto`} />
+        <input aria-label="Date d'échéance" name="dueDate" type="date" required className={`${inputClassName} mt-0 w-auto`} />
+        <input aria-label="Montant estimé en euros" name="amountEstimate" type="number" step="0.01" placeholder="Montant estimé — €" className={`${inputClassName} mt-0 w-auto`} />
         <ButtonPrimary>{pending ? 'Ajout…' : 'Ajouter'}</ButtonPrimary>
       </form>
 
